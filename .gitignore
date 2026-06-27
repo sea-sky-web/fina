@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.cache/
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Env
+.env
+.env.local
+
+# Local tool settings
+.claude/settings.local.json
+
+# Data
+data/raw/
+data/clean/
+data/qlib/
+*.duckdb
+*.db
+
+# System
+.DS_Store
+
+# Logs
+*.log

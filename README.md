@@ -83,7 +83,7 @@ npm run dev
 
 `.github/workflows/daily-signal.yml` 会在工作日北京时间 17:30 自动运行，也可以在
 GitHub Actions 页面手动触发。任务会刷新 ETF 数据、重建因子、生成 Top10 研究信号，
-并上传 `daily-signal-report` artifact。
+发送完整飞书报告，并上传 `daily-signal-report` artifact。
 
 如果需要飞书通知，在 GitHub 仓库的 Settings → Secrets and variables → Actions
 中添加：
@@ -91,7 +91,8 @@ GitHub Actions 页面手动触发。任务会刷新 ETF 数据、重建因子、
 - `FEISHU_BOT_WEBHOOK`
 - `FEISHU_BOT_SECRET`
 
-未配置飞书 secret 时，任务仍会运行并生成 artifact，只是跳过群通知。
+工作流使用严格通知模式；未配置飞书 secret 或通知发送失败时，任务会失败并在日志中
+显示原因，避免静默漏通知。
 
 ## 投资风险说明
 

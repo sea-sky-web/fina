@@ -41,7 +41,8 @@ jobs:
             --top-n 10 \
             --output-json artifacts/daily-signal.json \
             --output-md artifacts/daily-signal.md \
-            --notify-feishu
+            --notify-feishu \
+            --require-notification
 
       - name: Publish job summary
         if: always()

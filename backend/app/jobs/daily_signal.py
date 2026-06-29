@@ -101,6 +101,20 @@ def _portfolio_from_signals(
                 "score": signal.research_score,
                 "weight": portfolio.weights.get(signal.symbol, 0.0),
                 "risk_notes": signal.explanation.risk_notes,
+                "components": [
+                    {
+                        "factor_name": component.factor_name,
+                        "label": component.label,
+                        "percentile": component.percentile,
+                        "rank": component.rank,
+                        "contribution": component.contribution,
+                    }
+                    for component in sorted(
+                        signal.components,
+                        key=lambda item: item.contribution,
+                        reverse=True,
+                    )
+                ],
             }
         )
     return rows, portfolio.cash_weight, portfolio.notes
@@ -145,6 +159,9 @@ def build_daily_signal_report(config: DailySignalConfig) -> DailySignalReport:
 
 def format_report_markdown(report: DailySignalReport) -> str:
     refresh = report.refresh
+    trend_score = report.market_regime.get("trend_score")
+    volatility = report.market_regime.get("volatility_annualized")
+    drawdown = report.market_regime.get("drawdown")
     lines = [
         "# Fina ETF Daily Signal",
         "",
@@ -163,6 +180,14 @@ def format_report_markdown(report: DailySignalReport) -> str:
         ),
         f"- 现金或低风险仓位: {(report.cash_weight or 0):.0%}",
         "",
+        "## Market Regime",
+        "",
+        f"- 状态: {report.market_regime.get('label_zh')} ({report.market_regime.get('label')})",
+        f"- 参考源: {report.market_regime.get('source')}",
+        f"- 趋势分数: {trend_score:.4f}" if trend_score is not None else "- 趋势分数: 无",
+        f"- 年化波动: {volatility:.2%}" if volatility is not None else "- 年化波动: 无",
+        f"- 近期回撤: {drawdown:.2%}" if drawdown is not None else "- 近期回撤: 无",
+        "",
         "## Top Holdings",
         "",
         "| 权重 | 代码 | 名称 | 主题 | 研究分 |",
@@ -174,9 +199,33 @@ def format_report_markdown(report: DailySignalReport) -> str:
             f"{item['weight']:.1%} | {item['symbol']} | {item['name']} | "
             f"{item['theme']} | {item['score']:.2f} |"
         )
+    lines.extend(["", "## Holding Details", ""])
+    for index, item in enumerate(report.holdings, start=1):
+        lines.append(
+            f"{index}. {item['symbol']} {item['name']} - "
+            f"权重 {item['weight']:.1%}，研究分 {item['score']:.2f}"
+        )
+        components = item.get("components") or []
+        if components:
+            component_text = "；".join(
+                (
+                    f"{component['label']} 分位 {component['percentile']:.0%} "
+                    f"贡献 {component['contribution']:.1f}"
+                )
+                for component in components[:3]
+            )
+            lines.append(f"   - 主要因子: {component_text}")
+        risk_notes = item.get("risk_notes") or []
+        if risk_notes:
+            lines.append(f"   - 风险提示: {'；'.join(risk_notes)}")
     lines.extend(["", "## Notes", ""])
     for note in report.notes:
         lines.append(f"- {note}")
+    regime_notes = report.market_regime.get("data_notes") or []
+    if regime_notes:
+        lines.extend(["", "## Market Data Notes", ""])
+        for note in regime_notes:
+            lines.append(f"- {note}")
     failures = refresh.get("failures") or []
     if failures:
         lines.extend(["", "## Refresh Failures", ""])
@@ -251,6 +300,7 @@ def main() -> int:
     parser.add_argument("--output-json")
     parser.add_argument("--output-md")
     parser.add_argument("--notify-feishu", action="store_true")
+    parser.add_argument("--require-notification", action="store_true")
     args = parser.parse_args()
 
     report = build_daily_signal_report(
@@ -284,6 +334,8 @@ def main() -> int:
     _write_json(args.output_json, report.to_dict())
     print(markdown)
     print(f"Notification: {notification.status} - {notification.message}")
+    if args.require_notification and notification.status != "sent":
+        return 1
     return 0 if report.ok else 1
 
 

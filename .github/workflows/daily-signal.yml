@@ -1,0 +1,61 @@
+name: Daily ETF Signal
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 09:30 UTC = 17:30 Asia/Shanghai, after China ETF market close.
+    - cron: "30 9 * * 1-5"
+
+permissions:
+  contents: read
+
+jobs:
+  daily-signal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    env:
+      FEISHU_BOT_WEBHOOK: ${{ secrets.FEISHU_BOT_WEBHOOK }}
+      FEISHU_BOT_SECRET: ${{ secrets.FEISHU_BOT_SECRET }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "./backend[dev]"
+
+      - name: Run daily signal job
+        run: |
+          python -m app.jobs.daily_signal \
+            --limit 100 \
+            --lookback-days 365 \
+            --top-n 10 \
+            --output-json artifacts/daily-signal.json \
+            --output-md artifacts/daily-signal.md \
+            --notify-feishu
+
+      - name: Publish job summary
+        if: always()
+        run: |
+          if [ -f artifacts/daily-signal.md ]; then
+            cat artifacts/daily-signal.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Daily signal report was not generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-signal-report
+          path: artifacts/
+          if-no-files-found: ignore

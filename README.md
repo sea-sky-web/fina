@@ -60,6 +60,17 @@ PYTHONPATH=backend uvicorn app.main:app --reload
 PYTHONPATH=backend backend/.venv/bin/python -m app.jobs.collect_top_etfs --limit 100 --lookback-days 365
 ```
 
+生成每日研究信号摘要：
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python -m app.jobs.daily_signal \
+  --limit 100 \
+  --lookback-days 365 \
+  --top-n 10 \
+  --output-md artifacts/daily-signal.md \
+  --output-json artifacts/daily-signal.json
+```
+
 前端：
 
 ```bash
@@ -67,6 +78,20 @@ cd frontend
 npm install
 npm run dev
 ```
+
+## GitHub Actions
+
+`.github/workflows/daily-signal.yml` 会在工作日北京时间 17:30 自动运行，也可以在
+GitHub Actions 页面手动触发。任务会刷新 ETF 数据、重建因子、生成 Top10 研究信号，
+并上传 `daily-signal-report` artifact。
+
+如果需要飞书通知，在 GitHub 仓库的 Settings → Secrets and variables → Actions
+中添加：
+
+- `FEISHU_BOT_WEBHOOK`
+- `FEISHU_BOT_SECRET`
+
+未配置飞书 secret 时，任务仍会运行并生成 artifact，只是跳过群通知。
 
 ## 投资风险说明
 

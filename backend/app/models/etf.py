@@ -59,6 +59,8 @@ class RefreshResult(BaseModel):
     provider: str = "akshare"
     selected_rows: int = 0
     daily_rows: int = 0
+    factor_rows: int = 0
+    factor_latest_date: dt_date | None = None
     refreshed_at: datetime | None = None
     failures: list[dict[str, str]] = Field(default_factory=list)
 

@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import date, datetime
 
 import pandas as pd
 
@@ -48,6 +48,14 @@ def _status_from_frame(dataset: str, frame: pd.DataFrame, manifest: dict) -> Dat
             "Clean data is available; last refresh completed with provider fallback "
             "or partial daily data."
         )
+    if last_trade_date is not None:
+        data_age_days = (date.today() - last_trade_date).days
+        if data_age_days > settings.data_stale_after_days:
+            status = "stale"
+            message = (
+                f"Clean data is {data_age_days} calendar days behind "
+                f"latest local date; refresh is required."
+            )
 
     collected_at = manifest.get("collected_at")
     return DataStatus(

@@ -1,9 +1,14 @@
 import json
+import sys
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
 
-from app.collectors.akshare_collector import AkshareEtfCollector
+from app.collectors.akshare_collector import (
+    DEFAULT_REQUEST_TIMEOUT_SECONDS,
+    AkshareEtfCollector,
+)
 from app.core.config import settings
 from app.jobs.collect_top_etfs import collect_top_etfs
 from app.normalizers.akshare import normalize_symbol
@@ -59,6 +64,33 @@ def _daily_frame() -> pd.DataFrame:
 
 def test_normalize_symbol_supports_shanghai_52_prefix() -> None:
     assert normalize_symbol("520500") == "520500.SH"
+
+
+def test_akshare_collector_applies_default_request_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_timeouts: list[int] = []
+
+    def fake_get(*args, **kwargs):  # noqa: ANN002, ANN003
+        captured_timeouts.append(kwargs["timeout"])
+        return SimpleNamespace()
+
+    def fake_sina(symbol: str) -> pd.DataFrame:
+        assert symbol == "sh510300"
+        import requests
+
+        requests.get("https://example.test/daily")
+        return _daily_frame()
+
+    monkeypatch.setattr("requests.get", fake_get)
+    monkeypatch.setitem(
+        sys.modules,
+        "akshare",
+        SimpleNamespace(fund_etf_hist_sina=fake_sina),
+    )
+
+    frame = AkshareEtfCollector().fetch_daily_bars("510300.SH", "20260520", "20260521")
+
+    assert frame["source_endpoint"].tolist() == ["fund_etf_hist_sina", "fund_etf_hist_sina"]
+    assert captured_timeouts == [DEFAULT_REQUEST_TIMEOUT_SECONDS]
 
 
 def test_collect_top_etfs_writes_clean_outputs(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:

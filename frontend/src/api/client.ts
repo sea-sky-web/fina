@@ -129,10 +129,17 @@ export function fetchResearchSignalBacktest(params: {
   return getJson<BacktestResult>(`/api/backtests/research-signal?${query.toString()}`);
 }
 
-export function refreshTopEtfs(limit = 100, lookbackDays = 365): Promise<RefreshResult> {
-  return postJson<RefreshResult>(
-    `/api/refresh/top-etfs?limit=${limit}&lookback_days=${lookbackDays}`
-  );
+export function refreshTopEtfs(
+  limit = 100,
+  lookbackDays = 365,
+  rebuildFactors = true
+): Promise<RefreshResult> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    lookback_days: String(lookbackDays),
+    rebuild_factors: String(rebuildFactors),
+  });
+  return postJson<RefreshResult>(`/api/refresh/top-etfs?${params.toString()}`);
 }
 
 export function fetchWalkForward(params: {

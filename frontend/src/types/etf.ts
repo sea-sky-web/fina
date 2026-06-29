@@ -51,6 +51,8 @@ export type RefreshResult = {
   provider: string;
   selected_rows: number;
   daily_rows: number;
+  factor_rows: number;
+  factor_latest_date: string | null;
   refreshed_at: string | null;
   failures: Array<Record<string, string>>;
 };

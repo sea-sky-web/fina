@@ -160,7 +160,7 @@ export function App() {
       }
       setNotice(
         result.ok
-          ? `${result.message} ${result.selected_rows} 只 ETF，${result.daily_rows.toLocaleString("zh-CN")} 条日线。`
+          ? `${result.message} ${result.selected_rows} 只 ETF，${result.daily_rows.toLocaleString("zh-CN")} 条日线，${result.factor_rows.toLocaleString("zh-CN")} 条因子。`
           : null
       );
       if (!result.ok) {

@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     factor_neutralize_method: str = "intra_group_rank"
     factor_min_cross_section_size: int = 10
     factor_evaluation_horizons: str = "1,5,10,20"
+    data_stale_after_days: int = 3
 
     @cached_property
     def cors_origins(self) -> list[str]:

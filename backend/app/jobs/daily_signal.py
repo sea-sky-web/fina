@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from app.services.data_source_audit import audit_data_sources
 from app.services.refresh_service import refresh_top_etfs
 from app.services.rotation_service import build_rotation_report
 
@@ -23,6 +24,7 @@ class DailySignalReport:
     ok: bool
     generated_at: datetime
     refresh: dict[str, Any]
+    data_source_audit: dict[str, Any]
     radar_date: str | None
     rankings: list[dict[str, Any]]
     pools: dict[str, list[str]]
@@ -33,6 +35,7 @@ class DailySignalReport:
             "ok": self.ok,
             "generated_at": self.generated_at.isoformat(),
             "refresh": self.refresh,
+            "data_source_audit": self.data_source_audit,
             "radar_date": self.radar_date,
             "rankings": self.rankings,
             "pools": self.pools,
@@ -46,6 +49,7 @@ def build_daily_signal_report(config: DailySignalConfig) -> DailySignalReport:
         lookback_days=config.lookback_days,
         rebuild_factor_data=False,
     )
+    data_audit = audit_data_sources()
     rotation = build_rotation_report(top_n=config.top_n)
     rankings = [item.to_dict() for item in rotation.rankings]
     notes = [
@@ -55,11 +59,16 @@ def build_daily_signal_report(config: DailySignalConfig) -> DailySignalReport:
     ]
     if refresh_result.failures:
         notes.append("刷新存在降级或失败标的，请查看 refresh.failures。")
+    for warning in data_audit.warnings:
+        notes.append(f"数据源审计警告: {warning}")
+    for error in data_audit.errors:
+        notes.append(f"数据源审计错误: {error}")
 
     return DailySignalReport(
-        ok=refresh_result.ok and bool(rankings),
+        ok=refresh_result.ok and data_audit.ok and bool(rankings),
         generated_at=datetime.now(UTC),
         refresh=refresh_result.model_dump(mode="json"),
+        data_source_audit=data_audit.model_dump(mode="json"),
         radar_date=rotation.date.isoformat() if rotation.date else None,
         rankings=rankings,
         pools={
@@ -92,6 +101,7 @@ def _pool_name(name: str) -> str:
 
 def format_report_markdown(report: DailySignalReport) -> str:
     refresh = report.refresh
+    audit = report.data_source_audit
     lines = [
         "# 行业主题 ETF 轮动雷达",
         "",
@@ -103,18 +113,41 @@ def format_report_markdown(report: DailySignalReport) -> str:
             f"日线 {refresh.get('daily_rows', 0)}"
         ),
         "- 轮动输入: clean ETF 日线 + config/etf_rotation_inputs.csv",
+        f"- 数据源审计: {audit.get('status', 'unknown')}",
         "",
-        "## ETF 排名",
+        "## 数据源真实性审计",
         "",
-        "| 排名 | 代码 | 名称 | 类型 | 主题 | 总分 | 景气 | 动量 | 估值 | 风险 | 状态 | 动作 |",
-        "| ---: | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |",
+        f"- Provider: {audit.get('provider')}",
+        f"- Manifest 状态: {audit.get('manifest_status')}",
+        f"- 采集时间: {audit.get('collected_at') or '无'}",
+        f"- 最新交易日: {audit.get('latest_trade_date') or '无'}",
+        f"- 样本规模: ETF {audit.get('basic_rows', 0)} / 日线 {audit.get('daily_rows', 0)}",
+        f"- 覆盖标的: {audit.get('symbols_with_daily', 0)} / {audit.get('symbols_total', 0)}",
+        f"- Source endpoints: {', '.join(audit.get('source_endpoints') or []) or '无'}",
     ]
+    warnings = audit.get("warnings") or []
+    errors = audit.get("errors") or []
+    if warnings:
+        lines.append(f"- Warnings: {'；'.join(warnings)}")
+    if errors:
+        lines.append(f"- Errors: {'；'.join(errors)}")
+    lines.extend(
+        [
+            "",
+            "## ETF 排名",
+            "",
+            "| 排名 | 代码 | 名称 | 类型 | 主题 | 总分 | 景气 | 来源 | 动量 | "
+            "估值 | 风险 | 状态 | 动作 |",
+            "| ---: | --- | --- | --- | --- | ---: | ---: | --- | ---: | ---: | ---: | --- | --- |",
+        ]
+    )
     for index, item in enumerate(report.rankings, start=1):
         lines.append(
             "| "
             f"{index} | {item['symbol']} | {item['name']} | {item['etf_type']} | "
             f"{item['theme']} | {_format_score(item['total_score'])} | "
-            f"{_format_score(item['boom_score'])} | {_format_score(item['momentum_score'])} | "
+            f"{_format_score(item['boom_score'])} | {item.get('boom_source', 'data')} | "
+            f"{_format_score(item['momentum_score'])} | "
             f"{_format_score(item['valuation_score'])} | {_format_score(item['risk_score'])} | "
             f"{item['state']} | {item['action']} |"
         )
@@ -128,7 +161,8 @@ def format_report_markdown(report: DailySignalReport) -> str:
         )
         lines.append(
             f"   - 类型/主题: {item['etf_type']} / {item['theme']}；"
-            f"景气: {item['boom_status']} {item['boom_score']:.1f}；"
+            f"景气: {item['boom_status']} {item['boom_score']:.1f}"
+            f"（{item.get('boom_source', 'data')}）；"
             f"估值分位: {item['valuation_percentile']:.1f}%"
         )
         lines.append(

@@ -6,6 +6,8 @@
 
 - 采集 ETF 基础信息、日线行情和成交额
 - 结合可人工维护的行业景气、估值分位和结构评分
+- 补充 IOPV、折价率、份额、市值和 endpoint 等真实数据溯源字段
+- 审计 provider、manifest、source endpoint、数据新鲜度和缓存 fallback
 - 计算动量、相对强弱、流动性、风险和综合评分
 - 输出观察池、可配置/重点跟踪池、回避/控仓池
 - 提供后端 API 与 CLI
@@ -72,18 +74,19 @@ PYTHONPATH=backend backend/.venv/bin/python -m app.jobs.daily_signal \
   --output-json artifacts/daily-signal.json
 ```
 
-人工景气和估值输入维护在：
+估值、结构质量和可选景气修正输入维护在：
 
 ```text
 config/etf_rotation_inputs.csv
 ```
 
-缺失的景气/估值默认按中性 50 分处理，避免把未知数据当成确定结论。
+轮动雷达只比较行业/主题 ETF。景气分默认由同主题市场数据生成，缺失的估值和结构质量按中性分处理，避免把未知数据当成确定结论。
 
 后端接口：
 
 ```bash
 curl "http://127.0.0.1:8000/api/rotation/report?top_n=10"
+curl "http://127.0.0.1:8000/api/data-sources/audit"
 ```
 
 ## GitHub Actions
@@ -93,8 +96,8 @@ GitHub Actions 页面手动触发。任务会刷新 ETF 数据、生成 Top10 �
 创建一条 GitHub Issue 作为通知，并上传 `daily-signal-report` artifact。
 
 Issue 正文就是完整报告，包括数据刷新状态、Top10 排名、评分拆解、状态标签、
-风险提示和刷新失败明细。这个通知方式不需要额外 secret；在 GitHub 上 watch 本仓库
-即可收到网页、邮件或手机 App 通知。
+数据源真实性审计、风险提示和刷新失败明细。这个通知方式不需要额外 secret；
+在 GitHub 上 watch 本仓库即可收到网页、邮件或手机 App 通知。
 
 如果后续仍需要其他通知渠道，可以在 `backend/app/jobs/daily_signal.py` 的
 Markdown 报告基础上再接对应 webhook 或邮件发送器。

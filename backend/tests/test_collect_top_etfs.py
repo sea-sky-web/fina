@@ -11,7 +11,7 @@ from app.collectors.akshare_collector import (
 )
 from app.core.config import settings
 from app.jobs.collect_top_etfs import collect_top_etfs
-from app.normalizers.akshare import normalize_symbol
+from app.normalizers.akshare import normalize_etf_spot, normalize_symbol
 
 
 def _spot_frame() -> pd.DataFrame:
@@ -64,6 +64,19 @@ def _daily_frame() -> pd.DataFrame:
 
 def test_normalize_symbol_supports_shanghai_52_prefix() -> None:
     assert normalize_symbol("520500") == "520500.SH"
+
+
+def test_normalize_etf_spot_keeps_top_n_when_quote_timestamps_exist() -> None:
+    frame = _spot_frame()
+    frame.index = [10, 20]
+    frame["数据日期"] = "2026-06-30"
+    frame["更新时间"] = "2026-06-30 15:00:00+08:00"
+
+    normalized = normalize_etf_spot(frame, limit=1)
+
+    assert len(normalized) == 1
+    assert normalized["symbol"].tolist() == ["510300.SH"]
+    assert normalized["spot_date"].iloc[0].isoformat() == "2026-06-30"
 
 
 def test_akshare_collector_applies_default_request_timeout(monkeypatch: pytest.MonkeyPatch) -> None:

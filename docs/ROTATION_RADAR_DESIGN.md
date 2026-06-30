@@ -8,15 +8,16 @@ turns them into a daily decision-support report.
 
 ## Inputs
 
-v0.1 uses five input groups, with only the reliable subset automated today:
+v0.2 uses five input groups, with the market-data subset required to come from
+production provider responses or explicit cached fallbacks:
 
 | Input group | Current fields | Purpose |
 | --- | --- | --- |
 | ETF basic info | `symbol`, `name`, `index_name`, inferred `theme` | Define the analysis object |
-| Price and trading data | `close`, `amount` | Momentum, liquidity, volatility, drawdown |
+| Price and trading data | `close`, `amount`, `iopv`, `premium_discount_rate`, `latest_share`, market value fields | Momentum, liquidity, volatility, drawdown, ETF structure checks |
 | Valuation input | Manual `valuation_percentile` | Estimate odds and crowding risk |
 | ETF structure input | Manual `structure_score` | Reflect size, concentration, fee, tracking quality when known |
-| Cycle input | Manual `boom_status`, `boom_score`, `notes` | Reflect industry/theme cycle direction |
+| Cycle input | Data-driven cycle proxy plus optional manual `boom_status`, `boom_score`, `notes` | Reflect industry/theme cycle direction |
 
 Manual fields live in:
 
@@ -27,6 +28,22 @@ config/etf_rotation_inputs.csv
 Missing manual fields default to neutral scores. This is intentional: unknown data
 should not be converted into a fake positive or negative signal.
 
+## Data Authenticity
+
+The production system must not use mock, fake, sample, synthetic, or test provider
+values for clean ETF market data. `GET /api/data-sources/audit` checks:
+
+- manifest provider and latest collection status
+- clean ETF basic and daily row counts
+- latest trading date freshness
+- provider values in clean market data
+- source endpoints such as `fund_etf_spot_em`, `fund_etf_hist_sina`, and
+  `fund_etf_hist_em`
+- cached fallback usage and missing daily symbols
+
+The daily report includes this audit. Blocking errors make the job fail instead of
+silently publishing a report from untrusted data.
+
 ## Processing
 
 ### Classification
@@ -35,6 +52,10 @@ The service infers:
 
 - `theme`: 半导体芯片, 科技AI, 医药医疗, 金融地产, 新能源, 资源能源, 消费, 红利低波, 宽基指数, 科创创业, 港股中概, 海外指数, 货币现金, or 其他
 - `etf_type`: 行业, 主题, 风格, 宽基, 货币债券, or 其他
+
+Only `行业` and `主题` enter the rotation radar. `货币债券`, `宽基`, `风格`, and
+`其他` are excluded because their risk/return drivers and scoring framework are
+different from industry/theme rotation.
 
 ### Momentum
 
@@ -58,12 +79,19 @@ sell label.
 
 ### Cycle
 
-v0.1 keeps industry cycle judgement manual:
+v0.2 makes the default cycle signal data-driven. It calculates an industry/theme
+cycle proxy from same-theme ETF market data:
 
-- `boom_status`: 上行, 震荡, 下行, or 不确定
-- `boom_score`: 0 to 100
+- 3-month relative strength versus `510300.SH`
+- 6-month relative strength versus `510300.SH`
+- moving-average status
+- 20-day amount growth
+- volatility/drawdown risk score
 
-This avoids brittle automatic news interpretation before data sources are stable.
+The proxy is primarily theme-level, with a smaller ETF-specific component. If the
+manual CSV supplies a non-neutral `boom_score` or explicit `boom_status`, the
+manual score is blended in as a correction and the row reports
+`boom_source = data+manual`; otherwise `boom_source = data`.
 
 ### Structure, Liquidity, and Risk
 

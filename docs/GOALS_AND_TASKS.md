@@ -93,13 +93,13 @@ Acceptance:
 
 ### P3: Better Inputs
 
-Goal: improve cycle, valuation, and structure inputs without pretending v0.1 can
-automatically understand every industry.
+Goal: improve cycle, valuation, and structure inputs while keeping the cycle
+signal data-driven and auditable.
 
 Tasks:
 
 - Add symbol-level overrides for important ETFs
-- Add a review cadence for manual boom scores
+- Add a review cadence for data-driven cycle proxy drift and manual overrides
 - Add ETF size, fee, and tracking-index fields when reliable data is available
 - Add valuation percentile ingestion when a stable source is selected
 - Add optional constituent concentration once the data source is reliable
@@ -107,7 +107,7 @@ Tasks:
 Acceptance:
 
 - Manual input freshness is visible
-- Each non-neutral cycle score has a short note
+- Each non-neutral manual cycle override has a short note
 - Structure and valuation scores are auditable
 
 ## Decision Rules

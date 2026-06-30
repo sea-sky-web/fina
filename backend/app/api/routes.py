@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     backtests,
+    data_sources,
     etfs,
     evaluation,
     factors,
@@ -14,6 +15,7 @@ from app.api.v1 import (
 
 router = APIRouter()
 router.include_router(status.router, tags=["status"])
+router.include_router(data_sources.router, prefix="/data-sources", tags=["data-sources"])
 router.include_router(etfs.router, prefix="/etfs", tags=["etfs"])
 router.include_router(factors.router, prefix="/factors", tags=["factors"])
 router.include_router(evaluation.router, prefix="/evaluation", tags=["evaluation"])

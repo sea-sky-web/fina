@@ -24,12 +24,40 @@ def normalize_etf_spot(frame: pd.DataFrame, limit: int = 10) -> pd.DataFrame:
         raise ValueError(f"AKShare ETF spot data missing columns: {missing}")
 
     data = frame.copy()
-    for column in ["最新价", "涨跌幅", "成交量", "成交额"]:
+    numeric_columns = [
+        "最新价",
+        "IOPV实时估值",
+        "基金折价率",
+        "涨跌额",
+        "涨跌幅",
+        "成交量",
+        "成交额",
+        "开盘价",
+        "最高价",
+        "最低价",
+        "昨收",
+        "振幅",
+        "换手率",
+        "量比",
+        "最新份额",
+        "流通市值",
+        "总市值",
+    ]
+    for column in numeric_columns:
         if column in data.columns:
             data[column] = pd.to_numeric(data[column], errors="coerce")
-
     sort_column = "成交额" if "成交额" in data.columns else "成交量"
     data = data.sort_values(sort_column, ascending=False).head(limit).copy()
+    spot_date = (
+        pd.to_datetime(data["数据日期"], errors="coerce").dt.date
+        if "数据日期" in data.columns
+        else None
+    )
+    quote_updated_at = (
+        pd.to_datetime(data["更新时间"], errors="coerce", utc=True)
+        if "更新时间" in data.columns
+        else None
+    )
     data["code"] = data["代码"].astype(str).str.zfill(6)
     data["exchange"] = data["code"].map(infer_exchange)
     data["symbol"] = data["code"].map(normalize_symbol)
@@ -46,11 +74,27 @@ def normalize_etf_spot(frame: pd.DataFrame, limit: int = 10) -> pd.DataFrame:
             "manager": None,
             "list_date": pd.NaT,
             "latest_price": data.get("最新价"),
+            "iopv": data.get("IOPV实时估值"),
+            "premium_discount_rate": data.get("基金折价率"),
             "pct_chg": data.get("涨跌幅"),
+            "change": data.get("涨跌额"),
+            "open": data.get("开盘价"),
+            "high": data.get("最高价"),
+            "low": data.get("最低价"),
+            "pre_close": data.get("昨收"),
+            "amplitude": data.get("振幅"),
             "volume": data.get("成交量"),
             "amount": data.get("成交额"),
+            "turnover_rate": data.get("换手率"),
+            "volume_ratio": data.get("量比"),
+            "latest_share": data.get("最新份额"),
+            "circulating_market_value": data.get("流通市值"),
+            "total_market_value": data.get("总市值"),
+            "spot_date": spot_date,
+            "quote_updated_at": quote_updated_at,
             "status": "active",
             "provider": "akshare",
+            "source_endpoint": data.get("source_endpoint", "fund_etf_spot_em"),
             "updated_at": now,
         }
     )
@@ -70,6 +114,8 @@ def normalize_etf_daily(frame: pd.DataFrame, symbol: str) -> pd.DataFrame:
             "涨跌幅": "pct_chg",
             "成交量": "volume",
             "成交额": "amount",
+            "振幅": "amplitude",
+            "换手率": "turnover_rate",
         }
     else:
         column_map = {
@@ -92,7 +138,18 @@ def normalize_etf_daily(frame: pd.DataFrame, symbol: str) -> pd.DataFrame:
     data = frame.copy()
     data = data.rename(columns=column_map)
     data["date"] = pd.to_datetime(data["date"]).dt.date
-    for column in ["open", "high", "low", "close", "change", "pct_chg", "volume", "amount"]:
+    for column in [
+        "open",
+        "high",
+        "low",
+        "close",
+        "change",
+        "pct_chg",
+        "volume",
+        "amount",
+        "amplitude",
+        "turnover_rate",
+    ]:
         if column in data.columns:
             data[column] = pd.to_numeric(data[column], errors="coerce")
 
@@ -114,8 +171,11 @@ def normalize_etf_daily(frame: pd.DataFrame, symbol: str) -> pd.DataFrame:
         "pct_chg",
         "volume",
         "amount",
+        "amplitude",
+        "turnover_rate",
         "factor",
         "provider",
+        "source_endpoint",
         "updated_at",
     ]
     return data.reindex(columns=columns).reset_index(drop=True)

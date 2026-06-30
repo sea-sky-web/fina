@@ -15,6 +15,7 @@ from app.storage.parquet_store import read_parquet
 
 TRADING_DAYS_PER_YEAR = 252
 BENCHMARK_SYMBOL = "510300.SH"
+ANALYZABLE_ETF_TYPES = {"行业", "主题"}
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,7 @@ class RotationScore:
     liquidity_score: float
     risk_score: float
     boom_status: str
+    boom_source: str
     valuation_percentile: float
     state: str
     action: str
@@ -67,6 +69,7 @@ class RotationScore:
             "liquidity_score": self.liquidity_score,
             "risk_score": self.risk_score,
             "boom_status": self.boom_status,
+            "boom_source": self.boom_source,
             "valuation_percentile": self.valuation_percentile,
             "state": self.state,
             "action": self.action,
@@ -340,6 +343,50 @@ def _metric_frame(daily: pd.DataFrame) -> tuple[pd.DataFrame, date | None]:
     return frame, target_date
 
 
+def _resolved_etf_type(manual: RotationInputs, inferred_type: str) -> str:
+    if manual.etf_type and manual.etf_type != "其他":
+        return manual.etf_type
+    return inferred_type
+
+
+def _has_manual_boom_override(manual: RotationInputs) -> bool:
+    return manual.boom_status != "不确定" or abs(_clip_score(manual.boom_score) - 50.0) > 0.01
+
+
+def _boom_status_from_score(score: float) -> str:
+    if score >= 70:
+        return "上行"
+    if score >= 55:
+        return "改善"
+    if score >= 45:
+        return "震荡"
+    return "下行"
+
+
+def _boom_proxy_scores(metrics: pd.DataFrame, themes: pd.Series) -> pd.Series:
+    individual = (
+        metrics["relative_3m_score"] * 0.35
+        + metrics["relative_6m_score"] * 0.20
+        + metrics["ma_score"] * 0.20
+        + metrics["amount_growth_score"] * 0.15
+        + metrics["risk_score"] * 0.10
+    ).astype("float64")
+    theme_average = individual.groupby(themes).transform("mean")
+    proxy = theme_average * 0.70 + individual * 0.30
+    return proxy.clip(lower=0.0, upper=100.0)
+
+
+def _final_boom_score(
+    proxy_score: float,
+    manual: RotationInputs,
+) -> tuple[float, str]:
+    proxy_score = _clip_score(proxy_score)
+    if _has_manual_boom_override(manual):
+        blended_score = proxy_score * 0.75 + _clip_score(manual.boom_score) * 0.25
+        return _clip_score(blended_score), "data+manual"
+    return proxy_score, "data"
+
+
 def _input_for_symbol(
     symbol: str,
     theme: str,
@@ -444,14 +491,50 @@ def build_rotation_report(
 
     basic_lookup = _basic_lookup()
     by_symbol, by_theme = _load_rotation_inputs(input_path)
-    scores: list[RotationScore] = []
+    candidates: list[dict[str, Any]] = []
+    excluded_counts: dict[str, int] = {}
     for symbol, row in metrics.iterrows():
         basic = basic_lookup.get(symbol, {})
         name = str(basic.get("name") or symbol)
         theme = infer_etf_theme(name, basic.get("index_name"))
         etf_type = infer_etf_type(name, theme)
         manual = _input_for_symbol(symbol, theme, etf_type, by_symbol, by_theme)
-        boom_score = _clip_score(manual.boom_score)
+        final_type = _resolved_etf_type(manual, etf_type)
+        if final_type not in ANALYZABLE_ETF_TYPES:
+            excluded_counts[final_type] = excluded_counts.get(final_type, 0) + 1
+            continue
+        candidates.append(
+            {
+                "symbol": symbol,
+                "row": row,
+                "name": name,
+                "theme": theme,
+                "etf_type": final_type,
+                "manual": manual,
+            }
+        )
+
+    scores: list[RotationScore] = []
+    if candidates:
+        candidate_symbols = [item["symbol"] for item in candidates]
+        candidate_metrics = metrics.loc[candidate_symbols]
+        candidate_themes = pd.Series(
+            {item["symbol"]: item["theme"] for item in candidates},
+            dtype="object",
+        )
+        boom_proxy = _boom_proxy_scores(candidate_metrics, candidate_themes)
+    else:
+        boom_proxy = pd.Series(dtype="float64")
+
+    for item in candidates:
+        symbol = item["symbol"]
+        row = item["row"]
+        name = item["name"]
+        theme = item["theme"]
+        etf_type = item["etf_type"]
+        manual = item["manual"]
+        boom_score, boom_source = _final_boom_score(float(boom_proxy.get(symbol, 50.0)), manual)
+        boom_status = _boom_status_from_score(boom_score)
         valuation_percentile = _clip_score(manual.valuation_percentile)
         valuation_score = _clip_score(100 - valuation_percentile)
         structure_score = _clip_score(manual.structure_score, default=60.0)
@@ -478,7 +561,7 @@ def build_rotation_report(
                 symbol=symbol,
                 name=name,
                 theme=theme,
-                etf_type=manual.etf_type or etf_type,
+                etf_type=etf_type,
                 date=target_date,
                 total_score=round(float(total_score), 2),
                 boom_score=round(boom_score, 2),
@@ -487,7 +570,8 @@ def build_rotation_report(
                 structure_score=round(structure_score, 2),
                 liquidity_score=round(liquidity_score, 2),
                 risk_score=round(risk_score, 2),
-                boom_status=manual.boom_status,
+                boom_status=boom_status,
+                boom_source=boom_source,
                 valuation_percentile=round(valuation_percentile, 2),
                 state=state,
                 action=action,
@@ -528,10 +612,16 @@ def build_rotation_report(
         ][:top_n],
     }
     data_notes = [
-        "v0.1 使用日线价格、成交额、可选人工景气和估值输入生成行业主题 ETF 轮动雷达。",
+        "v0.2 仅比较行业和主题 ETF；货币债券、宽基、风格及其他 ETF 不进入本轮动雷达。",
+        "景气分默认由同主题市场数据代理生成，使用相对收益、均线、成交额变化和风险分，人工景气输入只作可选修正。",
         f"人工输入文件: {str(input_path or settings.rotation_input_path)}。",
-        "景气和估值缺失时采用中性 50 分，不会假装自动理解行业基本面。",
+        "估值和结构质量仍来自人工输入；缺失时采用中性分，不会假装已有完整基本面数据。",
     ]
+    if excluded_counts:
+        excluded = "、".join(
+            f"{name} {count} 只" for name, count in sorted(excluded_counts.items())
+        )
+        data_notes.append(f"本次已排除非行业/主题 ETF：{excluded}。")
     return RotationReport(
         date=target_date,
         rankings=rankings[: max(top_n, 1)],

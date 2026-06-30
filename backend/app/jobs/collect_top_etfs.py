@@ -92,6 +92,17 @@ def _cached_raw_daily_bars(symbol: str, date_key: str) -> pd.DataFrame:
     )
 
 
+def _source_endpoints(frame: pd.DataFrame) -> list[str]:
+    if frame.empty or "source_endpoint" not in frame.columns:
+        return []
+    endpoints = {
+        str(endpoint).strip()
+        for endpoint in frame["source_endpoint"].dropna().unique()
+        if str(endpoint).strip()
+    }
+    return sorted(endpoints)
+
+
 def collect_top_etfs(limit: int = 100, lookback_days: int = 365) -> dict[str, object]:
     collector = AkshareEtfCollector()
     collected_at = datetime.now(UTC)
@@ -99,6 +110,7 @@ def collect_top_etfs(limit: int = 100, lookback_days: int = 365) -> dict[str, ob
     failures: list[dict[str, str]] = []
     spot_rows = 0
     spot_source = "akshare_spot"
+    spot_source_endpoints: list[str] = []
 
     try:
         raw_spot = collector.fetch_etf_universe()
@@ -107,12 +119,14 @@ def collect_top_etfs(limit: int = 100, lookback_days: int = 365) -> dict[str, ob
             settings.raw_dir / "akshare" / "etf_spot" / f"date={date_key}" / "part.parquet"
         )
         write_parquet(raw_spot, raw_spot_path)
+        spot_source_endpoints = _source_endpoints(raw_spot)
         etf_basic = normalize_etf_spot(raw_spot, limit=limit)
     except Exception as exc:
         raw_spot = _cached_raw_spot()
         if not raw_spot.empty:
             spot_rows = int(len(raw_spot))
             spot_source = "cached_raw_etf_spot"
+            spot_source_endpoints = _source_endpoints(raw_spot)
             etf_basic = normalize_etf_spot(raw_spot, limit=limit)
         else:
             etf_basic = _cached_etf_basic(limit=limit)
@@ -140,6 +154,7 @@ def collect_top_etfs(limit: int = 100, lookback_days: int = 365) -> dict[str, ob
     start_date = end_date - timedelta(days=lookback_days)
     daily_frames: list[pd.DataFrame] = []
     daily_failures: list[dict[str, str]] = []
+    daily_source_endpoints: set[str] = set()
 
     for symbol in etf_basic["symbol"].tolist():
         try:
@@ -159,6 +174,7 @@ def collect_top_etfs(limit: int = 100, lookback_days: int = 365) -> dict[str, ob
                     / "part.parquet"
                 )
                 write_parquet(raw_daily, raw_daily_path)
+            daily_source_endpoints.update(_source_endpoints(raw_daily))
             daily_frames.append(normalize_etf_daily(raw_daily, symbol=symbol))
         except Exception as exc:  # noqa: BLE001
             cached_daily = _cached_daily_bars(symbol)
@@ -171,6 +187,7 @@ def collect_top_etfs(limit: int = 100, lookback_days: int = 365) -> dict[str, ob
                     "error": "Daily collection failed; reused cached daily bars.",
                 }
             )
+            daily_source_endpoints.update(_source_endpoints(cached_daily))
             daily_frames.append(cached_daily)
 
     if daily_failures and not daily_frames:
@@ -205,8 +222,10 @@ def collect_top_etfs(limit: int = 100, lookback_days: int = 365) -> dict[str, ob
         "lookback_days": lookback_days,
         "spot_rows": spot_rows,
         "spot_source": spot_source,
+        "spot_source_endpoints": spot_source_endpoints,
         "selected_rows": int(len(etf_basic)),
         "daily_rows": int(len(etf_daily)),
+        "daily_source_endpoints": sorted(daily_source_endpoints),
         "daily_missing_symbols": [item["symbol"] for item in daily_failures],
         "failures": failures,
     }

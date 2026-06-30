@@ -16,11 +16,27 @@ Normalized table: `etf_basic`
 | manager | string | Fund manager when available |
 | list_date | date | Listing date when available |
 | latest_price | double | Latest market price from spot data when available |
+| iopv | double | Real-time IOPV estimate from spot data when available |
+| premium_discount_rate | double | Premium/discount rate from spot data when available |
 | pct_chg | double | Latest percentage change from spot data when available |
+| change | double | Latest price change from spot data when available |
+| open | double | Latest spot open price when available |
+| high | double | Latest spot high price when available |
+| low | double | Latest spot low price when available |
+| pre_close | double | Previous close from spot data when available |
+| amplitude | double | Spot amplitude when available |
 | volume | double | Latest trading volume when available |
 | amount | double | Latest turnover amount when available |
+| turnover_rate | double | Latest turnover rate when available |
+| volume_ratio | double | Latest volume ratio when available |
+| latest_share | double | Latest ETF share count from spot data when available |
+| circulating_market_value | double | Circulating market value when available |
+| total_market_value | double | Total market value when available |
+| spot_date | date | Spot quote data date when available |
+| quote_updated_at | timestamp | Spot quote timestamp when available |
 | status | string | Listing status |
 | provider | string | Source provider |
+| source_endpoint | string | Provider endpoint, e.g. `fund_etf_spot_em` |
 | updated_at | timestamp | Collection or normalization timestamp |
 
 ## ETF Daily
@@ -40,8 +56,11 @@ Normalized table: `etf_daily`
 | pct_chg | double | Percentage change when available |
 | volume | double | Trading volume, normalized to shares when possible |
 | amount | double | Turnover amount, normalized to CNY when possible |
+| amplitude | double | Daily amplitude when available |
+| turnover_rate | double | Daily turnover rate when available |
 | factor | double | Adjustment factor; `1.0` if unavailable |
 | provider | string | Source provider |
+| source_endpoint | string | Provider endpoint, e.g. `fund_etf_hist_sina` or `fund_etf_hist_em` |
 | updated_at | timestamp | Collection or normalization timestamp |
 
 ## Data Status
@@ -62,20 +81,47 @@ Normalized API model: `data_status`
 
 Tracked file: `config/etf_rotation_inputs.csv`
 
-This file is intentionally manual in v0.1. It lets the user add industry and theme
-research judgement without pretending that the system can automatically infer every
-sector's fundamental cycle.
+This file is a manual override layer. The rotation radar now derives the default
+industry/theme cycle proxy from market data, while this CSV can still add
+valuation, structure quality, and optional research judgement.
 
 | Column | Type | Description |
 | --- | --- | --- |
 | symbol | string | Optional ETF symbol override. Empty means the row applies to the theme. |
 | theme | string | Theme bucket, e.g. `半导体芯片`, `科技AI`, `新能源` |
-| etf_type | string | `行业`, `主题`, `风格`, `宽基`, `货币债券`, or `其他` |
-| boom_status | string | Manual cycle label: `上行`, `震荡`, `下行`, or `不确定` |
-| boom_score | double | Manual industry/theme cycle score from 0 to 100 |
+| etf_type | string | `行业`, `主题`, `风格`, `宽基`, `货币债券`, or `其他`; only `行业` and `主题` enter the rotation radar |
+| boom_status | string | Optional manual cycle label: `上行`, `改善`, `震荡`, `下行`, or `不确定` |
+| boom_score | double | Optional manual cycle score from 0 to 100, blended as a small correction when provided |
 | valuation_percentile | double | Manual valuation percentile from 0 to 100; lower is cheaper |
 | structure_score | double | Manual ETF structure quality score from 0 to 100 |
 | notes | string | Research notes shown in the daily report |
+
+## Data Source Audit
+
+API endpoint: `GET /api/data-sources/audit`
+
+The audit only checks production clean ETF market data. Test fixtures and mocked
+unit-test frames do not count as valid production data.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| ok | bool | `false` when production data is empty, stale, failed, or uses non-production providers |
+| status | string | `ok`, `warning`, or `error` |
+| provider | string | Manifest provider, currently expected to be `akshare` |
+| manifest_status | string | Last collection status: `ok`, `degraded`, or `error` |
+| collected_at | timestamp | Last collection timestamp |
+| spot_source | string | Spot data source path, such as `akshare_spot` or cached fallback |
+| selected_rows | integer | ETF universe size selected by the collector |
+| basic_rows | integer | Clean ETF basic row count |
+| daily_rows | integer | Clean ETF daily row count |
+| latest_trade_date | date | Latest date in `etf_daily` |
+| symbols_total | integer | Number of selected ETF symbols |
+| symbols_with_daily | integer | Number of symbols with clean daily bars |
+| daily_missing_symbols | array | Selected symbols missing daily bars |
+| source_endpoints | array | Provider endpoints observed in clean data or manifest |
+| cached_sources | array | Cached fallback sources used in the latest collection |
+| warnings | array | Non-blocking data quality caveats |
+| errors | array | Blocking data authenticity or freshness errors |
 
 ## ETF Rotation Radar
 
@@ -83,7 +129,15 @@ API endpoint: `GET /api/rotation/report?top_n=10`
 
 Job entry point: `python -m app.jobs.daily_signal`
 
-The v0.1 radar combines manual boom/valuation inputs with daily price and turnover data.
+The v0.2 radar only ranks industry and theme ETFs. Money/bond ETFs, broad-base
+ETFs, style ETFs, and uncategorized ETFs are excluded because their analysis
+framework differs from sector/theme rotation.
+
+The cycle score is data-driven by default. It uses same-theme market proxies from
+daily price and trading data: 3-month and 6-month relative strength, moving-average
+status, 20-day turnover growth, and risk score. Manual `boom_score` remains
+available as an override-style correction, not as the primary source.
+
 Weights:
 
 | Module | Weight |
@@ -109,7 +163,8 @@ Ranking row fields:
 | Field | Type | Description |
 | --- | --- | --- |
 | total_score | double | Weighted 0-100 score |
-| boom_score | double | Manual cycle score |
+| boom_score | double | Data-driven cycle proxy score after optional manual correction |
+| boom_source | string | `data` or `data+manual` |
 | momentum_score | double | Relative return, moving-average, and turnover-growth score |
 | valuation_score | double | `100 - valuation_percentile` |
 | structure_score | double | Manual ETF structure quality score |

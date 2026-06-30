@@ -24,6 +24,7 @@ def test_rotation_report_endpoint(monkeypatch) -> None:
             liquidity_score=75.0,
             risk_score=68.0,
             boom_status="上行",
+            boom_source="data+manual",
             valuation_percentile=35.0,
             state="景气上行 + 动量确认",
             action="主线候选",
@@ -48,4 +49,5 @@ def test_rotation_report_endpoint(monkeypatch) -> None:
     assert payload["radar_date"] == "2026-06-30"
     assert payload["rankings"][0]["symbol"] == "AAA.SH"
     assert payload["rankings"][0]["state"] == "景气上行 + 动量确认"
+    assert payload["rankings"][0]["boom_source"] == "data+manual"
     assert payload["pools"]["core_candidates"] == ["AAA.SH"]

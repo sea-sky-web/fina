@@ -82,6 +82,11 @@ def test_build_rotation_report_scores_industry_theme_etfs(monkeypatch, tmp_path)
     assert report.date == date(2026, 6, 26)
     assert report.rankings[0].symbol == "AAA.SH"
     assert report.rankings[0].action == "主线候选"
-    assert report.rankings[0].boom_score == 85
+    assert report.rankings[0].boom_score >= 70
+    assert report.rankings[0].boom_status == "上行"
+    assert report.rankings[0].boom_source == "data+manual"
+    assert {item.etf_type for item in report.rankings} == {"行业"}
+    assert "510300.SH" not in [item.symbol for item in report.rankings]
     assert "AAA.SH" in [item.symbol for item in report.pools["core_candidates"]]
+    assert any("仅比较行业和主题 ETF" in note for note in report.data_notes)
     assert any("人工输入文件" in note for note in report.data_notes)

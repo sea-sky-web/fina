@@ -58,6 +58,66 @@ Normalized API model: `data_status`
 | status | string | `ok`, `stale`, `empty`, or `error` |
 | message | string | Human-readable status message |
 
+## ETF Rotation Inputs
+
+Tracked file: `config/etf_rotation_inputs.csv`
+
+This file is intentionally manual in v0.1. It lets the user add industry and theme
+research judgement without pretending that the system can automatically infer every
+sector's fundamental cycle.
+
+| Column | Type | Description |
+| --- | --- | --- |
+| symbol | string | Optional ETF symbol override. Empty means the row applies to the theme. |
+| theme | string | Theme bucket, e.g. `半导体芯片`, `科技AI`, `新能源` |
+| etf_type | string | `行业`, `主题`, `风格`, `宽基`, `货币债券`, or `其他` |
+| boom_status | string | Manual cycle label: `上行`, `震荡`, `下行`, or `不确定` |
+| boom_score | double | Manual industry/theme cycle score from 0 to 100 |
+| valuation_percentile | double | Manual valuation percentile from 0 to 100; lower is cheaper |
+| structure_score | double | Manual ETF structure quality score from 0 to 100 |
+| notes | string | Research notes shown in the daily report |
+
+## ETF Rotation Radar
+
+API endpoint: `GET /api/rotation/report?top_n=10`
+
+Job entry point: `python -m app.jobs.daily_signal`
+
+The v0.1 radar combines manual boom/valuation inputs with daily price and turnover data.
+Weights:
+
+| Module | Weight |
+| --- | ---: |
+| 行业景气 | 30% |
+| 动量趋势 | 25% |
+| 估值赔率 | 15% |
+| ETF 结构质量 | 10% |
+| 流动性 | 10% |
+| 风险/拥挤度 | 10% |
+
+Output fields in `daily-signal.json`:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| radar_date | date | Latest local trading date used by the radar |
+| rankings | array | Top ETF ranking rows |
+| pools | object | Symbol lists for `core_candidates`, `watchlist`, and `avoid` |
+| notes | array | Data and research caveats |
+
+Ranking row fields:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| total_score | double | Weighted 0-100 score |
+| boom_score | double | Manual cycle score |
+| momentum_score | double | Relative return, moving-average, and turnover-growth score |
+| valuation_score | double | `100 - valuation_percentile` |
+| structure_score | double | Manual ETF structure quality score |
+| liquidity_score | double | Cross-sectional 20-day turnover score |
+| risk_score | double | Volatility/drawdown/overheat risk score, higher is safer |
+| state | string | Interpretable state label such as `景气上行 + 动量确认` |
+| action | string | Research action label such as `主线候选`, `左侧观察`, or `暂不优先` |
+
 ## ETF Factors
 
 Normalized table: `factors`

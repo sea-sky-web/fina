@@ -65,6 +65,36 @@ class RefreshResult(BaseModel):
     failures: list[dict[str, str]] = Field(default_factory=list)
 
 
+class RotationScoreModel(BaseModel):
+    symbol: str
+    name: str
+    theme: str
+    etf_type: str
+    date: dt_date
+    total_score: float
+    boom_score: float
+    momentum_score: float
+    valuation_score: float
+    structure_score: float
+    liquidity_score: float
+    risk_score: float
+    boom_status: str
+    valuation_percentile: float
+    state: str
+    action: str
+    returns: dict[str, float | None] = Field(default_factory=dict)
+    risk_notes: list[str] = Field(default_factory=list)
+    drivers: list[str] = Field(default_factory=list)
+    input_notes: str = ""
+
+
+class RotationReportModel(BaseModel):
+    radar_date: dt_date | None = None
+    rankings: list[RotationScoreModel] = Field(default_factory=list)
+    pools: dict[str, list[str]] = Field(default_factory=dict)
+    data_notes: list[str] = Field(default_factory=list)
+
+
 class FactorScore(BaseModel):
     symbol: str
     name: str

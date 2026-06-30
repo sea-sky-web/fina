@@ -1,4 +1,4 @@
-name: Daily ETF Signal
+name: ETF Rotation Radar
 
 on:
   workflow_dispatch:
@@ -39,17 +39,6 @@ jobs:
             --output-json artifacts/daily-signal.json \
             --output-md artifacts/daily-signal.md
 
-      - name: Create GitHub Issue with signal report
-        if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ -f artifacts/daily-signal.md ]; then
-            TITLE="📊 ETF 每日研究信号 $(date -u +%Y-%m-%d)"
-            BODY=$(cat artifacts/daily-signal.md)
-            gh issue create --title "$TITLE" --body "$BODY" --label "signal"
-          fi
-
       - name: Publish job summary
         if: always()
         run: |
@@ -58,6 +47,20 @@ jobs:
           else
             echo "Daily signal report was not generated." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Create GitHub issue notification
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f artifacts/daily-signal.md ]; then
+            echo "Daily signal report was not generated; skip issue notification."
+            exit 1
+          fi
+          SIGNAL_DATE="$(python -c 'import json; from pathlib import Path; payload = json.loads(Path("artifacts/daily-signal.json").read_text()); print(payload.get("radar_date") or payload.get("generated_at", "unknown")[:10])')"
+          gh issue create \
+            --title "ETF Rotation Radar ${SIGNAL_DATE}" \
+            --body-file artifacts/daily-signal.md
 
       - name: Upload report artifact
         if: always()

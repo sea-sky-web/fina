@@ -136,6 +136,6 @@ def build_monitoring_report() -> MonitoringReport:
         alerts=alerts,
         data_notes=[
             "监控报告只读取现有清洗数据、因子评估缓存和信号快照，不触发数据采集或下单。",
-            "前端可以轮询该报告作为持续监控视图。",
+            "后端 API 或自动化任务可以读取该报告作为持续监控视图。",
         ],
     )

@@ -8,15 +8,12 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   daily-signal:
     runs-on: ubuntu-latest
     timeout-minutes: 40
-
-    env:
-      FEISHU_BOT_WEBHOOK: ${{ secrets.FEISHU_BOT_WEBHOOK }}
-      FEISHU_BOT_SECRET: ${{ secrets.FEISHU_BOT_SECRET }}
 
     steps:
       - name: Check out repository
@@ -40,9 +37,18 @@ jobs:
             --lookback-days 365 \
             --top-n 10 \
             --output-json artifacts/daily-signal.json \
-            --output-md artifacts/daily-signal.md \
-            --notify-feishu \
-            --require-notification
+            --output-md artifacts/daily-signal.md
+
+      - name: Create GitHub Issue with signal report
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f artifacts/daily-signal.md ]; then
+            TITLE="📊 ETF 每日研究信号 $(date -u +%Y-%m-%d)"
+            BODY=$(cat artifacts/daily-signal.md)
+            gh issue create --title "$TITLE" --body "$BODY" --label "signal"
+          fi
 
       - name: Publish job summary
         if: always()

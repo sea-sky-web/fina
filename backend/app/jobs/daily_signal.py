@@ -1,26 +1,15 @@
 from __future__ import annotations
 
 import argparse
-import base64
-import hashlib
-import hmac
 import json
-import os
-import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-
-from app.core.config import settings
-from app.risk import build_risk_adjusted_portfolio, detect_market_regime
+from app.services.data_source_audit import audit_data_sources
 from app.services.refresh_service import refresh_top_etfs
-from app.services.signal_service import list_research_signals
-from app.storage.parquet_store import read_parquet
+from app.services.rotation_service import build_rotation_report
 
 
 @dataclass(frozen=True)
@@ -31,247 +20,175 @@ class DailySignalConfig:
 
 
 @dataclass(frozen=True)
-class NotificationResult:
-    status: str = "skipped"
-    message: str = "Feishu webhook is not configured."
-
-
-@dataclass(frozen=True)
 class DailySignalReport:
     ok: bool
     generated_at: datetime
     refresh: dict[str, Any]
-    signal_date: str | None
-    market_regime: dict[str, Any]
-    holdings: list[dict[str, Any]]
-    cash_weight: float | None = None
+    data_source_audit: dict[str, Any]
+    radar_date: str | None
+    rankings: list[dict[str, Any]]
+    pools: dict[str, list[str]]
     notes: list[str] = field(default_factory=list)
-    notification: NotificationResult = field(default_factory=NotificationResult)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "ok": self.ok,
             "generated_at": self.generated_at.isoformat(),
             "refresh": self.refresh,
-            "signal_date": self.signal_date,
-            "market_regime": self.market_regime,
-            "holdings": self.holdings,
-            "cash_weight": self.cash_weight,
+            "data_source_audit": self.data_source_audit,
+            "radar_date": self.radar_date,
+            "rankings": self.rankings,
+            "pools": self.pools,
             "notes": self.notes,
-            "notification": {
-                "status": self.notification.status,
-                "message": self.notification.message,
-            },
         }
-
-
-def _daily_for_regime() -> pd.DataFrame:
-    daily = read_parquet(settings.clean_dir / "etf_daily.parquet")
-    if daily.empty:
-        return pd.DataFrame(columns=["symbol", "date", "close"])
-    keep = [column for column in ["symbol", "date", "close"] if column in daily.columns]
-    return daily[keep].copy()
-
-
-def _portfolio_from_signals(
-    signals,
-    signal_date,
-) -> tuple[list[dict[str, Any]], float | None, list[str]]:
-    if not signals or signal_date is None:
-        return [], None, ["没有可用研究信号。"]
-
-    daily = _daily_for_regime()
-    regime = detect_market_regime(daily, signal_date)
-    top_signals = signals
-    portfolio = build_risk_adjusted_portfolio(
-        symbols=[signal.symbol for signal in top_signals],
-        scores={signal.symbol: signal.research_score for signal in top_signals},
-        daily=daily,
-        as_of=signal_date,
-        themes={signal.symbol: signal.theme for signal in top_signals},
-        regime=regime,
-    )
-    rows = []
-    for signal in top_signals:
-        rows.append(
-            {
-                "symbol": signal.symbol,
-                "name": signal.name,
-                "theme": signal.theme,
-                "score": signal.research_score,
-                "weight": portfolio.weights.get(signal.symbol, 0.0),
-                "risk_notes": signal.explanation.risk_notes,
-                "components": [
-                    {
-                        "factor_name": component.factor_name,
-                        "label": component.label,
-                        "percentile": component.percentile,
-                        "rank": component.rank,
-                        "contribution": component.contribution,
-                    }
-                    for component in sorted(
-                        signal.components,
-                        key=lambda item: item.contribution,
-                        reverse=True,
-                    )
-                ],
-            }
-        )
-    return rows, portfolio.cash_weight, portfolio.notes
 
 
 def build_daily_signal_report(config: DailySignalConfig) -> DailySignalReport:
     refresh_result = refresh_top_etfs(
         limit=config.limit,
         lookback_days=config.lookback_days,
-        rebuild_factor_data=True,
+        rebuild_factor_data=False,
     )
-    signals = list_research_signals(limit=config.top_n)
-    signal_date = signals[0].date if signals else None
-    daily = _daily_for_regime()
-    regime = detect_market_regime(daily, signal_date)
-    holdings, cash_weight, portfolio_notes = _portfolio_from_signals(signals, signal_date)
-    notes = [*portfolio_notes, "本报告仅用于研究观察，不构成任何投资建议。"]
+    data_audit = audit_data_sources()
+    rotation = build_rotation_report(top_n=config.top_n)
+    rankings = [item.to_dict() for item in rotation.rankings]
+    notes = [
+        *rotation.data_notes,
+        "评分权重: 景气30% / 动量25% / 估值15% / 结构10% / 流动性10% / 风险10%。",
+        "本报告输出观察、配置和回避状态，不构成任何投资建议。",
+    ]
     if refresh_result.failures:
         notes.append("刷新存在降级或失败标的，请查看 refresh.failures。")
+    for warning in data_audit.warnings:
+        notes.append(f"数据源审计警告: {warning}")
+    for error in data_audit.errors:
+        notes.append(f"数据源审计错误: {error}")
 
     return DailySignalReport(
-        ok=refresh_result.ok and bool(holdings),
+        ok=refresh_result.ok and data_audit.ok and bool(rankings),
         generated_at=datetime.now(UTC),
         refresh=refresh_result.model_dump(mode="json"),
-        signal_date=signal_date.isoformat() if signal_date else None,
-        market_regime={
-            "label": regime.label,
-            "label_zh": regime.label_zh,
-            "date": regime.date.isoformat() if regime.date else None,
-            "target_exposure": regime.target_exposure,
-            "trend_score": regime.trend_score,
-            "volatility_annualized": regime.volatility_annualized,
-            "drawdown": regime.drawdown,
-            "source": regime.source,
-            "data_notes": regime.data_notes,
+        data_source_audit=data_audit.model_dump(mode="json"),
+        radar_date=rotation.date.isoformat() if rotation.date else None,
+        rankings=rankings,
+        pools={
+            name: [item.symbol for item in scores]
+            for name, scores in rotation.pools.items()
         },
-        holdings=holdings,
-        cash_weight=cash_weight,
         notes=notes,
     )
 
 
+def _format_percent(value: float | None) -> str:
+    if value is None:
+        return "无"
+    return f"{value:.1%}"
+
+
+def _format_score(value: float | None) -> str:
+    if value is None:
+        return "无"
+    return f"{value:.1f}"
+
+
+def _pool_name(name: str) -> str:
+    return {
+        "core_candidates": "可配置/重点跟踪",
+        "watchlist": "观察池",
+        "avoid": "回避/控仓池",
+    }.get(name, name)
+
+
 def format_report_markdown(report: DailySignalReport) -> str:
     refresh = report.refresh
-    trend_score = report.market_regime.get("trend_score")
-    volatility = report.market_regime.get("volatility_annualized")
-    drawdown = report.market_regime.get("drawdown")
+    audit = report.data_source_audit
     lines = [
-        "# Fina ETF Daily Signal",
+        "# 行业主题 ETF 轮动雷达",
         "",
         f"- 生成时间: {report.generated_at.isoformat()}",
-        f"- 信号日期: {report.signal_date or '无'}",
+        f"- 雷达日期: {report.radar_date or '无'}",
         f"- 刷新状态: {'OK' if refresh.get('ok') else 'FAILED'} - {refresh.get('message')}",
         (
             f"- 数据规模: ETF {refresh.get('selected_rows', 0)} / "
-            f"日线 {refresh.get('daily_rows', 0)} / "
-            f"因子 {refresh.get('factor_rows', 0)}"
+            f"日线 {refresh.get('daily_rows', 0)}"
         ),
-        f"- 因子最新日期: {refresh.get('factor_latest_date') or '无'}",
-        (
-            f"- 市场状态: {report.market_regime.get('label_zh')} / "
-            f"目标暴露 {report.market_regime.get('target_exposure', 0):.0%}"
-        ),
-        f"- 现金或低风险仓位: {(report.cash_weight or 0):.0%}",
+        "- 轮动输入: clean ETF 日线 + config/etf_rotation_inputs.csv",
+        f"- 数据源审计: {audit.get('status', 'unknown')}",
         "",
-        "## Market Regime",
+        "## 数据源真实性审计",
         "",
-        f"- 状态: {report.market_regime.get('label_zh')} ({report.market_regime.get('label')})",
-        f"- 参考源: {report.market_regime.get('source')}",
-        f"- 趋势分数: {trend_score:.4f}" if trend_score is not None else "- 趋势分数: 无",
-        f"- 年化波动: {volatility:.2%}" if volatility is not None else "- 年化波动: 无",
-        f"- 近期回撤: {drawdown:.2%}" if drawdown is not None else "- 近期回撤: 无",
-        "",
-        "## Top Holdings",
-        "",
-        "| 权重 | 代码 | 名称 | 主题 | 研究分 |",
-        "| ---: | --- | --- | --- | ---: |",
+        f"- Provider: {audit.get('provider')}",
+        f"- Manifest 状态: {audit.get('manifest_status')}",
+        f"- 采集时间: {audit.get('collected_at') or '无'}",
+        f"- 最新交易日: {audit.get('latest_trade_date') or '无'}",
+        f"- 样本规模: ETF {audit.get('basic_rows', 0)} / 日线 {audit.get('daily_rows', 0)}",
+        f"- 覆盖标的: {audit.get('symbols_with_daily', 0)} / {audit.get('symbols_total', 0)}",
+        f"- Source endpoints: {', '.join(audit.get('source_endpoints') or []) or '无'}",
     ]
-    for item in report.holdings:
+    warnings = audit.get("warnings") or []
+    errors = audit.get("errors") or []
+    if warnings:
+        lines.append(f"- Warnings: {'；'.join(warnings)}")
+    if errors:
+        lines.append(f"- Errors: {'；'.join(errors)}")
+    lines.extend(
+        [
+            "",
+            "## ETF 排名",
+            "",
+            "| 排名 | 代码 | 名称 | 类型 | 主题 | 总分 | 景气 | 来源 | 动量 | "
+            "估值 | 风险 | 状态 | 动作 |",
+            "| ---: | --- | --- | --- | --- | ---: | ---: | --- | ---: | ---: | ---: | --- | --- |",
+        ]
+    )
+    for index, item in enumerate(report.rankings, start=1):
         lines.append(
             "| "
-            f"{item['weight']:.1%} | {item['symbol']} | {item['name']} | "
-            f"{item['theme']} | {item['score']:.2f} |"
+            f"{index} | {item['symbol']} | {item['name']} | {item['etf_type']} | "
+            f"{item['theme']} | {_format_score(item['total_score'])} | "
+            f"{_format_score(item['boom_score'])} | {item.get('boom_source', 'data')} | "
+            f"{_format_score(item['momentum_score'])} | "
+            f"{_format_score(item['valuation_score'])} | {_format_score(item['risk_score'])} | "
+            f"{item['state']} | {item['action']} |"
         )
-    lines.extend(["", "## Holding Details", ""])
-    for index, item in enumerate(report.holdings, start=1):
+
+    lines.extend(["", "## 单 ETF 分析卡片", ""])
+    for index, item in enumerate(report.rankings, start=1):
+        returns = item.get("returns") or {}
         lines.append(
             f"{index}. {item['symbol']} {item['name']} - "
-            f"权重 {item['weight']:.1%}，研究分 {item['score']:.2f}"
+            f"{item['state']}，{item['action']}，总分 {item['total_score']:.1f}"
         )
-        components = item.get("components") or []
-        if components:
-            component_text = "；".join(
-                (
-                    f"{component['label']} 分位 {component['percentile']:.0%} "
-                    f"贡献 {component['contribution']:.1f}"
-                )
-                for component in components[:3]
-            )
-            lines.append(f"   - 主要因子: {component_text}")
-        risk_notes = item.get("risk_notes") or []
-        if risk_notes:
-            lines.append(f"   - 风险提示: {'；'.join(risk_notes)}")
+        lines.append(
+            f"   - 类型/主题: {item['etf_type']} / {item['theme']}；"
+            f"景气: {item['boom_status']} {item['boom_score']:.1f}"
+            f"（{item.get('boom_source', 'data')}）；"
+            f"估值分位: {item['valuation_percentile']:.1f}%"
+        )
+        lines.append(
+            f"   - 收益: 1月 {_format_percent(returns.get('1m'))}，"
+            f"3月 {_format_percent(returns.get('3m'))}，"
+            f"6月 {_format_percent(returns.get('6m'))}，"
+            f"3月相对沪深300 {_format_percent(returns.get('relative_3m'))}"
+        )
+        lines.append(f"   - 优势: {'；'.join(item.get('drivers') or [])}")
+        lines.append(f"   - 风险: {'；'.join(item.get('risk_notes') or [])}")
+        if item.get("input_notes"):
+            lines.append(f"   - 人工输入备注: {item['input_notes']}")
+
+    lines.extend(["", "## 状态池", ""])
+    for name, symbols in report.pools.items():
+        lines.append(f"- {_pool_name(name)}: {', '.join(symbols) if symbols else '无'}")
+
     lines.extend(["", "## Notes", ""])
     for note in report.notes:
         lines.append(f"- {note}")
-    regime_notes = report.market_regime.get("data_notes") or []
-    if regime_notes:
-        lines.extend(["", "## Market Data Notes", ""])
-        for note in regime_notes:
-            lines.append(f"- {note}")
     failures = refresh.get("failures") or []
     if failures:
         lines.extend(["", "## Refresh Failures", ""])
         for failure in failures:
             lines.append(f"- {failure}")
     return "\n".join(lines) + "\n"
-
-
-def _feishu_sign(timestamp: int, secret: str) -> str:
-    string_to_sign = f"{timestamp}\n{secret}"
-    digest = hmac.new(string_to_sign.encode("utf-8"), digestmod=hashlib.sha256).digest()
-    return base64.b64encode(digest).decode("utf-8")
-
-
-def notify_feishu(text: str, webhook: str | None, secret: str | None = None) -> NotificationResult:
-    if not webhook:
-        return NotificationResult()
-
-    payload: dict[str, Any] = {
-        "msg_type": "text",
-        "content": {"text": text},
-    }
-    if secret:
-        timestamp = int(time.time())
-        payload["timestamp"] = str(timestamp)
-        payload["sign"] = _feishu_sign(timestamp, secret)
-
-    request = urllib.request.Request(
-        webhook,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            body = response.read().decode("utf-8")
-    except (urllib.error.URLError, TimeoutError) as exc:
-        return NotificationResult(status="failed", message=str(exc))
-
-    try:
-        parsed = json.loads(body)
-    except json.JSONDecodeError:
-        return NotificationResult(status="failed", message=f"Unexpected Feishu response: {body}")
-    if parsed.get("code") not in {0, None}:
-        return NotificationResult(status="failed", message=str(parsed))
-    return NotificationResult(status="sent", message="Feishu notification sent.")
 
 
 def _write_text(path: str | None, text: str) -> None:
@@ -292,15 +209,13 @@ def _write_json(path: str | None, payload: dict[str, Any]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Refresh ETF data and produce daily signal report."
+        description="Refresh ETF data and produce industry/theme rotation radar report."
     )
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--lookback-days", type=int, default=365)
     parser.add_argument("--top-n", type=int, default=10)
     parser.add_argument("--output-json")
     parser.add_argument("--output-md")
-    parser.add_argument("--notify-feishu", action="store_true")
-    parser.add_argument("--require-notification", action="store_true")
     args = parser.parse_args()
 
     report = build_daily_signal_report(
@@ -311,31 +226,9 @@ def main() -> int:
         )
     )
     markdown = format_report_markdown(report)
-    notification = NotificationResult()
-    if args.notify_feishu:
-        notification = notify_feishu(
-            markdown,
-            webhook=os.environ.get("FEISHU_BOT_WEBHOOK"),
-            secret=os.environ.get("FEISHU_BOT_SECRET"),
-        )
-        report = DailySignalReport(
-            ok=report.ok,
-            generated_at=report.generated_at,
-            refresh=report.refresh,
-            signal_date=report.signal_date,
-            market_regime=report.market_regime,
-            holdings=report.holdings,
-            cash_weight=report.cash_weight,
-            notes=report.notes,
-            notification=notification,
-        )
-
     _write_text(args.output_md, markdown)
     _write_json(args.output_json, report.to_dict())
     print(markdown)
-    print(f"Notification: {notification.status} - {notification.message}")
-    if args.require_notification and notification.status != "sent":
-        return 1
     return 0 if report.ok else 1
 
 

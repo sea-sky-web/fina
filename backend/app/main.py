@@ -9,7 +9,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Fina ETF Research API",
         version="0.1.0",
-        description="Data collection and display API for China-listed ETFs.",
+        description="Backend API and automation for China-listed ETF rotation research.",
     )
 
     app.add_middleware(

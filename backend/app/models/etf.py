@@ -18,11 +18,27 @@ class EtfBasic(BaseModel):
     manager: str | None = None
     list_date: dt_date | None = None
     latest_price: float | None = None
+    iopv: float | None = None
+    premium_discount_rate: float | None = None
     pct_chg: float | None = None
+    change: float | None = None
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    pre_close: float | None = None
+    amplitude: float | None = None
     volume: float | None = None
     amount: float | None = None
+    turnover_rate: float | None = None
+    volume_ratio: float | None = None
+    latest_share: float | None = None
+    circulating_market_value: float | None = None
+    total_market_value: float | None = None
+    spot_date: dt_date | None = None
+    quote_updated_at: datetime | None = None
     status: str | None = None
     provider: str = "unknown"
+    source_endpoint: str | None = None
     updated_at: datetime | None = None
 
 
@@ -38,8 +54,11 @@ class EtfDailyBar(BaseModel):
     pct_chg: float | None = None
     volume: float | None = None
     amount: float | None = None
+    amplitude: float | None = None
+    turnover_rate: float | None = None
     factor: float = 1.0
     provider: str = "unknown"
+    source_endpoint: str | None = None
     updated_at: datetime | None = None
 
 
@@ -53,6 +72,27 @@ class DataStatus(BaseModel):
     message: str
 
 
+class DataSourceAudit(BaseModel):
+    generated_at: datetime
+    ok: bool
+    status: str = Field(pattern="^(ok|warning|error)$")
+    provider: str = "unknown"
+    manifest_status: str | None = None
+    collected_at: datetime | None = None
+    spot_source: str | None = None
+    selected_rows: int = 0
+    basic_rows: int = 0
+    daily_rows: int = 0
+    latest_trade_date: dt_date | None = None
+    symbols_total: int = 0
+    symbols_with_daily: int = 0
+    daily_missing_symbols: list[str] = Field(default_factory=list)
+    source_endpoints: list[str] = Field(default_factory=list)
+    cached_sources: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+
+
 class RefreshResult(BaseModel):
     ok: bool
     message: str
@@ -63,6 +103,37 @@ class RefreshResult(BaseModel):
     factor_latest_date: dt_date | None = None
     refreshed_at: datetime | None = None
     failures: list[dict[str, str]] = Field(default_factory=list)
+
+
+class RotationScoreModel(BaseModel):
+    symbol: str
+    name: str
+    theme: str
+    etf_type: str
+    date: dt_date
+    total_score: float
+    boom_score: float
+    momentum_score: float
+    valuation_score: float
+    structure_score: float
+    liquidity_score: float
+    risk_score: float
+    boom_status: str
+    boom_source: str = "data"
+    valuation_percentile: float
+    state: str
+    action: str
+    returns: dict[str, float | None] = Field(default_factory=dict)
+    risk_notes: list[str] = Field(default_factory=list)
+    drivers: list[str] = Field(default_factory=list)
+    input_notes: str = ""
+
+
+class RotationReportModel(BaseModel):
+    radar_date: dt_date | None = None
+    rankings: list[RotationScoreModel] = Field(default_factory=list)
+    pools: dict[str, list[str]] = Field(default_factory=dict)
+    data_notes: list[str] = Field(default_factory=list)
 
 
 class FactorScore(BaseModel):

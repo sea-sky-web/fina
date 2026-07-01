@@ -44,6 +44,7 @@ class AkshareEtfCollector(EtfDataCollector):
 
         with _requests_default_timeout():
             frame = ak.fund_etf_spot_em()
+        frame["source_endpoint"] = "fund_etf_spot_em"
         frame["provider"] = self.provider
         frame["updated_at"] = datetime.now(UTC)
         return frame
@@ -52,35 +53,32 @@ class AkshareEtfCollector(EtfDataCollector):
         import akshare as ak
 
         code = symbol.split(".")[0]
-        if code.startswith("52"):
-            raise RuntimeError("52-prefix ETF daily endpoint is currently unstable")
-
         sina_symbol = f"{symbol.split('.')[1].lower()}{code}" if "." in symbol else code
         try:
             with _requests_default_timeout():
-                frame = ak.fund_etf_hist_sina(symbol=sina_symbol)
-            frame["date"] = pd.to_datetime(frame["date"])
-            frame = frame[
-                (frame["date"] >= pd.to_datetime(start_date))
-                & (frame["date"] <= pd.to_datetime(end_date))
-            ].copy()
-            frame["source_endpoint"] = "fund_etf_hist_sina"
-        except Exception as sina_exc:
+                frame = ak.fund_etf_hist_em(
+                    symbol=code,
+                    period="daily",
+                    start_date=start_date,
+                    end_date=end_date,
+                    adjust="",
+                )
+            frame["source_endpoint"] = "fund_etf_hist_em"
+        except Exception as em_exc:
             try:
                 with _requests_default_timeout():
-                    frame = ak.fund_etf_hist_em(
-                        symbol=code,
-                        period="daily",
-                        start_date=start_date,
-                        end_date=end_date,
-                        adjust="",
-                    )
-            except Exception as em_exc:
+                    frame = ak.fund_etf_hist_sina(symbol=sina_symbol)
+                frame["date"] = pd.to_datetime(frame["date"])
+                frame = frame[
+                    (frame["date"] >= pd.to_datetime(start_date))
+                    & (frame["date"] <= pd.to_datetime(end_date))
+                ].copy()
+            except Exception as sina_exc:
                 raise RuntimeError(
                     f"ETF daily fetch failed for {symbol}; "
-                    f"sina={sina_exc}; eastmoney={em_exc}"
-                ) from em_exc
-            frame["source_endpoint"] = "fund_etf_hist_em"
+                    f"eastmoney={em_exc}; sina={sina_exc}"
+                ) from sina_exc
+            frame["source_endpoint"] = "fund_etf_hist_sina"
         frame["symbol"] = symbol
         frame["provider"] = self.provider
         frame["updated_at"] = datetime.now(UTC)

@@ -1,20 +1,23 @@
 # Fina ETF Research
 
-一个面向中国大陆沪深交易所可交易 ETF 的数据采集、展示与后续因子研究项目。
+一个面向中国大陆沪深交易所可交易 ETF 的行业/主题轮动雷达。
 
-初版目标很克制：
+当前核心目标是搭建一个行业/主题 ETF 轮动雷达：
 
-- 采集 ETF 基础信息与日线行情
-- 将原始数据与清洗数据分层保存
-- 提供基础 API 给前端展示
-- 为后续接入 Qlib 因子分析预留标准字段与导出路径
+- 采集 ETF 基础信息、日线行情和成交额
+- 结合可人工维护的行业景气、估值分位和结构评分
+- 补充 IOPV、折价率、份额、市值和 endpoint 等真实数据溯源字段
+- 审计 provider、manifest、source endpoint、数据新鲜度和缓存 fallback
+- 计算动量、相对强弱、流动性、风险和综合评分
+- 输出观察池、可配置/重点跟踪池、回避/控仓池
+- 提供后端 API 与 CLI
+- 通过 GitHub Actions 每日生成完整报告并创建 GitHub Issue 通知
 
 当前阶段不做：
 
-- 自动荐股或买卖建议
-- 实盘交易
-- 复杂因子分析
-- 组合优化
+- 实盘交易或自动下单
+- 自动新闻/NLP 景气判断
+- 全量成分股穿透分析
 - 高频交易
 
 ## 技术栈
@@ -22,15 +25,14 @@
 - 数据采集：Python, AKShare
 - 存储：Parquet + DuckDB
 - 后端：FastAPI
-- 前端：React + Vite + TypeScript
-- 图表：自定义 SVG K 线与成交量图
-- 后续研究：Qlib
+- 研究任务：后端 CLI job
+- 自动化：GitHub Actions + GitHub Issue 通知
 
 ## 目录
 
 ```text
 backend/          FastAPI 后端与数据采集任务
-frontend/         React 前端
+config/           人工维护的行业景气、估值和结构评分输入
 data/             本地数据目录, 默认不提交真实数据
 docs/             架构、约束、数据约定
 scripts/          项目级辅助脚本
@@ -41,6 +43,7 @@ scripts/          项目级辅助脚本
 - [Architecture](docs/ARCHITECTURE.md)
 - [Project Constraints](docs/CONSTRAINTS.md)
 - [Data Contract](docs/DATA_CONTRACT.md)
+- [Rotation Radar Design](docs/ROTATION_RADAR_DESIGN.md)
 - [Goals and Task Priorities](docs/GOALS_AND_TASKS.md)
 
 ## 快速开始
@@ -60,7 +63,7 @@ PYTHONPATH=backend uvicorn app.main:app --reload
 PYTHONPATH=backend backend/.venv/bin/python -m app.jobs.collect_top_etfs --limit 100 --lookback-days 365
 ```
 
-生成每日研究信号摘要：
+生成每日轮动雷达报告：
 
 ```bash
 PYTHONPATH=backend backend/.venv/bin/python -m app.jobs.daily_signal \
@@ -71,28 +74,33 @@ PYTHONPATH=backend backend/.venv/bin/python -m app.jobs.daily_signal \
   --output-json artifacts/daily-signal.json
 ```
 
-前端：
+估值、结构质量和可选景气修正输入维护在：
+
+```text
+config/etf_rotation_inputs.csv
+```
+
+轮动雷达只比较行业/主题 ETF。景气分默认由同主题市场数据生成，缺失的估值和结构质量按中性分处理，避免把未知数据当成确定结论。
+
+后端接口：
 
 ```bash
-cd frontend
-npm install
-npm run dev
+curl "http://127.0.0.1:8000/api/rotation/report?top_n=10"
+curl "http://127.0.0.1:8000/api/data-sources/audit"
 ```
 
 ## GitHub Actions
 
 `.github/workflows/daily-signal.yml` 会在工作日北京时间 17:30 自动运行，也可以在
-GitHub Actions 页面手动触发。任务会刷新 ETF 数据、重建因子、生成 Top10 研究信号，
-发送完整飞书报告，并上传 `daily-signal-report` artifact。
+GitHub Actions 页面手动触发。任务会刷新 ETF 数据、生成 Top10 轮动雷达，
+创建一条 GitHub Issue 作为通知，并上传 `daily-signal-report` artifact。
 
-如果需要飞书通知，在 GitHub 仓库的 Settings → Secrets and variables → Actions
-中添加：
+Issue 正文就是完整报告，包括数据刷新状态、Top10 排名、评分拆解、状态标签、
+数据源真实性审计、风险提示和刷新失败明细。这个通知方式不需要额外 secret；
+在 GitHub 上 watch 本仓库即可收到网页、邮件或手机 App 通知。
 
-- `FEISHU_BOT_WEBHOOK`
-- `FEISHU_BOT_SECRET`
-
-工作流使用严格通知模式；未配置飞书 secret 或通知发送失败时，任务会失败并在日志中
-显示原因，避免静默漏通知。
+如果后续仍需要其他通知渠道，可以在 `backend/app/jobs/daily_signal.py` 的
+Markdown 报告基础上再接对应 webhook 或邮件发送器。
 
 ## 投资风险说明
 

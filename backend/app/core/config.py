@@ -8,8 +8,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 def find_project_root() -> Path:
     for candidate in [Path.cwd(), *Path.cwd().parents]:
         has_backend = (candidate / "backend" / "pyproject.toml").exists()
-        has_frontend = (candidate / "frontend").exists()
-        if has_backend and has_frontend:
+        has_project_docs = (candidate / "README.md").exists() or (candidate / ".git").exists()
+        if has_backend and has_project_docs:
             return candidate
     return Path(__file__).resolve().parents[3]
 
@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     cors_origins_raw: str = Field(
-        default="http://localhost:5173,http://127.0.0.1:5173",
+        default="",
         validation_alias="FINA_CORS_ORIGINS",
     )
     factor_outlier_method: str = "mad"
@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     factor_min_cross_section_size: int = 10
     factor_evaluation_horizons: str = "1,5,10,20"
     data_stale_after_days: int = 3
+    rotation_input_path: Path = Field(default=PROJECT_ROOT / "config" / "etf_rotation_inputs.csv")
 
     @cached_property
     def cors_origins(self) -> list[str]:
@@ -50,10 +51,6 @@ class Settings(BaseSettings):
     @property
     def clean_dir(self) -> Path:
         return self.data_dir / "clean"
-
-    @property
-    def qlib_dir(self) -> Path:
-        return self.data_dir / "qlib"
 
 
 settings = Settings()

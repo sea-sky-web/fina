@@ -42,7 +42,7 @@ Clean data must normalize:
 - Numeric columns into stable numeric types
 - Volume and amount units into documented units
 
-## Qlib Compatibility
+## Rotation Data Compatibility
 
 Clean daily market data should preserve at least:
 
@@ -50,28 +50,37 @@ Clean daily market data should preserve at least:
 symbol, date, open, high, low, close, volume, amount, factor
 ```
 
-For Qlib export, use adjusted prices when possible. If no adjustment factor is available in the prototype, set `factor = 1.0` and mark the dataset as unadjusted.
+The rotation service currently requires `symbol`, `date`, `close`, and preferably
+`amount`. If `amount` is unavailable, liquidity scores should fall back to neutral
+or clearly note the limitation.
 
-Do not feed raw provider columns directly into Qlib.
+Do not feed raw provider columns directly into the scoring service.
 
-## Frontend Rules
+## API and Report Rules
 
-The initial UI is a research dashboard, not a recommendation product.
+The backend API and daily report are research outputs, not recommendation products.
 
-It should show:
+They should show:
 
 - Data freshness
-- ETF universe table
-- Basic historical price chart
+- ETF ranking and score breakdown
+- State pools and research actions
 - Collection failures or stale data warnings
+- Manual input caveats
 
-It should not show:
+They should not show:
 
 - Buy/sell labels
 - Target prices
 - Guaranteed return language
 - Ranking framed as investment advice
 
+## Automation Rules
+
+Scheduled jobs should produce a full markdown report and JSON artifact. Notification
+failures should be visible in GitHub Actions logs. The default notification channel
+is a GitHub Issue so no third-party webhook secret is required.
+
 ## Local Data Rules
 
-Real data files under `data/raw`, `data/clean`, and `data/qlib` are local artifacts and should not be committed by default.
+Real data files under `data/raw` and `data/clean` are local artifacts and should not be committed by default.

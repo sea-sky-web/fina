@@ -24,6 +24,9 @@ AKShare
   -> manual rotation inputs from config/etf_rotation_inputs.csv
   -> rotation scoring service
   -> FastAPI /api/rotation/report
+  -> optional current holdings
+  -> portfolio advice service
+  -> FastAPI /api/portfolio/advice
   -> daily_signal CLI markdown + JSON
   -> GitHub Actions issue notification
 ```
@@ -75,6 +78,33 @@ Outputs:
 - per-ETF drivers and risk notes
 - state pools: `core_candidates`, `watchlist`, and `avoid`
 - data caveats for stale or incomplete inputs
+
+## Portfolio Advice Service
+
+`app/services/portfolio_advice_service.py` turns the rotation radar into a
+position-aware research output. It does not replace the rotation service. Instead,
+it compares current portfolio weights with a risk-adjusted target portfolio built
+from current core rotation candidates.
+
+Inputs:
+
+- current holdings: `symbol` and portfolio `weight`
+- latest rotation report
+- clean ETF daily bars for market regime and correlation constraints
+
+Processing:
+
+- choose target symbols from `主线候选` and `重点跟踪`
+- detect market regime and target exposure
+- apply risk constraints for single ETF, theme concentration, and correlation clusters
+- compare current weights with target weights
+- assign research adjustment labels: `新增配置候选`, `加仓候选`, `减仓候选`, or `持有不变`
+
+Outputs:
+
+- current exposure, target exposure, cash/low-risk weight, and estimated turnover
+- per-symbol current weight, target weight, delta, action label, and rationale
+- data notes that keep the output framed as research, not trading instructions
 
 ## Storage Layers
 

@@ -65,15 +65,22 @@ They should show:
 - Data freshness
 - ETF ranking and score breakdown
 - State pools and research actions
+- Position-aware research adjustment labels when the user provides current holdings
 - Collection failures or stale data warnings
 - Manual input caveats
 
 They should not show:
 
 - Buy/sell labels
+- Broker order instructions
 - Target prices
 - Guaranteed return language
 - Ranking framed as investment advice
+
+Portfolio advice may use labels such as `新增配置候选`, `加仓候选`, `减仓候选`,
+and `持有不变` only when they are derived from current weight versus target
+research weight. These labels must be accompanied by rationale and data caveats,
+and must not be framed as an instruction to place an order.
 
 ## Automation Rules
 

@@ -173,6 +173,65 @@ Ranking row fields:
 | state | string | Interpretable state label such as `景气上行 + 动量确认` |
 | action | string | Research action label such as `主线候选`, `左侧观察`, or `暂不优先` |
 
+## Portfolio Advice
+
+API endpoint: `POST /api/portfolio/advice`
+
+Job option: `python -m app.jobs.daily_signal --holdings-file <csv-or-json>`
+
+Portfolio advice compares current holdings with a risk-adjusted target portfolio
+built from current rotation candidates. It is a research adjustment view, not an
+order ticket.
+
+Request fields:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| holdings | array | Current holdings with `symbol` and `weight` |
+| target_count | integer | Number of target rotation candidates to include, default `5` |
+| universe_limit | integer | Number of ranked ETFs to inspect from the rotation radar, default `50` |
+| min_trade_weight | double | Minimum weight difference for an adjustment label, default `0.03` |
+
+Holding fields:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| symbol | string | Standard ETF symbol, e.g. `159998.SZ` |
+| weight | double | Current portfolio weight from 0 to 1; `0.30` means 30% |
+
+Response fields:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| radar_date | date | Rotation radar date used for the advice |
+| current_exposure | double | Sum of current input weights |
+| target_exposure | double | Realized target ETF exposure after risk caps |
+| cash_weight | double | Residual cash or low-risk weight implied by target exposure |
+| estimated_turnover | double | Half of absolute current-vs-target weight changes |
+| market_regime | object | Market regime snapshot used for target exposure |
+| target_symbols | array | Symbols selected for the target portfolio |
+| advice | array | Per-symbol adjustment rows |
+| data_notes | array | Research caveats and risk-constraint notes |
+
+Advice row fields:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| symbol | string | ETF symbol |
+| name | string | ETF display name |
+| theme | string | Inferred theme |
+| etf_type | string | ETF type used by the radar |
+| current_weight | double | Current input portfolio weight |
+| target_weight | double | Risk-adjusted target portfolio weight |
+| delta_weight | double | `target_weight - current_weight` |
+| action | string | `新增配置候选`, `加仓候选`, `减仓候选`, or `持有不变` |
+| total_score | double | Rotation total score when available |
+| state | string | Rotation state label when available |
+| rotation_action | string | Original rotation action label when available |
+| rationale | array | Human-readable reasons for the action label |
+| drivers | array | Positive rotation drivers |
+| risk_notes | array | Rotation or missing-data risk notes |
+
 ## ETF Factors
 
 Normalized table: `factors`

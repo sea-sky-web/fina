@@ -10,6 +10,7 @@
 - 审计 provider、manifest、source endpoint、数据新鲜度和缓存 fallback
 - 计算动量、相对强弱、流动性、风险和综合评分
 - 输出观察池、可配置/重点跟踪池、回避/控仓池
+- 基于已有持仓输出新增配置、加仓、减仓、持有不变的研究建议
 - 提供后端 API 与 CLI
 - 通过 GitHub Actions 每日生成完整报告并创建 GitHub Issue 通知
 
@@ -41,6 +42,7 @@ scripts/          项目级辅助脚本
 核心文档：
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [Research Flow](docs/RESEARCH_FLOW.md)
 - [Project Constraints](docs/CONSTRAINTS.md)
 - [Data Contract](docs/DATA_CONTRACT.md)
 - [Rotation Radar Design](docs/ROTATION_RADAR_DESIGN.md)
@@ -74,6 +76,20 @@ PYTHONPATH=backend backend/.venv/bin/python -m app.jobs.daily_signal \
   --output-json artifacts/daily-signal.json
 ```
 
+如需把已有持仓纳入报告，可提供 `symbol,weight` CSV；`weight` 使用组合小数，
+例如 `0.30` 表示 30%：
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python -m app.jobs.daily_signal \
+  --limit 100 \
+  --lookback-days 365 \
+  --top-n 10 \
+  --holdings-file config/current_holdings.csv \
+  --portfolio-target-count 5 \
+  --output-md artifacts/daily-signal.md \
+  --output-json artifacts/daily-signal.json
+```
+
 估值、结构质量和可选景气修正输入维护在：
 
 ```text
@@ -86,6 +102,9 @@ config/etf_rotation_inputs.csv
 
 ```bash
 curl "http://127.0.0.1:8000/api/rotation/report?top_n=10"
+curl -X POST "http://127.0.0.1:8000/api/portfolio/advice" \
+  -H "Content-Type: application/json" \
+  -d '{"holdings":[{"symbol":"159998.SZ","weight":0.2}],"target_count":5}'
 curl "http://127.0.0.1:8000/api/data-sources/audit"
 ```
 

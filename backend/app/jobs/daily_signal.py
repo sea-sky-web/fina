@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from app.models import PortfolioAdviceRequest, PortfolioHoldingInput
 from app.services.data_source_audit import audit_data_sources
+from app.services.portfolio_advice_service import build_portfolio_advice
 from app.services.refresh_service import refresh_top_etfs
 from app.services.rotation_service import build_rotation_report
 
@@ -17,6 +20,9 @@ class DailySignalConfig:
     limit: int = 100
     lookback_days: int = 365
     top_n: int = 10
+    holdings_file: str | None = None
+    portfolio_target_count: int = 5
+    min_trade_weight: float = 0.03
 
 
 @dataclass(frozen=True)
@@ -28,6 +34,7 @@ class DailySignalReport:
     radar_date: str | None
     rankings: list[dict[str, Any]]
     pools: dict[str, list[str]]
+    portfolio_advice: dict[str, Any] | None = None
     notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -39,8 +46,34 @@ class DailySignalReport:
             "radar_date": self.radar_date,
             "rankings": self.rankings,
             "pools": self.pools,
+            "portfolio_advice": self.portfolio_advice,
             "notes": self.notes,
         }
+
+
+def _load_holdings_file(path: str) -> list[PortfolioHoldingInput]:
+    source = Path(path)
+    if not source.exists():
+        raise FileNotFoundError(f"Holdings file not found: {source}")
+
+    if source.suffix.lower() == ".json":
+        payload = json.loads(source.read_text(encoding="utf-8"))
+        rows = payload.get("holdings", []) if isinstance(payload, dict) else payload
+    else:
+        with source.open("r", encoding="utf-8-sig", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+
+    holdings: list[PortfolioHoldingInput] = []
+    for row in rows:
+        if not row or not row.get("symbol"):
+            continue
+        holdings.append(
+            PortfolioHoldingInput(
+                symbol=str(row["symbol"]),
+                weight=float(row["weight"]),
+            )
+        )
+    return holdings
 
 
 def build_daily_signal_report(config: DailySignalConfig) -> DailySignalReport:
@@ -57,6 +90,20 @@ def build_daily_signal_report(config: DailySignalConfig) -> DailySignalReport:
         "评分权重: 景气30% / 动量25% / 估值15% / 结构10% / 流动性10% / 风险10%。",
         "本报告输出观察、配置和回避状态，不构成任何投资建议。",
     ]
+    portfolio_advice: dict[str, Any] | None = None
+    if config.holdings_file:
+        try:
+            advice = build_portfolio_advice(
+                PortfolioAdviceRequest(
+                    holdings=_load_holdings_file(config.holdings_file),
+                    target_count=config.portfolio_target_count,
+                    universe_limit=min(max(config.limit, config.top_n), 200),
+                    min_trade_weight=config.min_trade_weight,
+                )
+            )
+            portfolio_advice = advice.model_dump(mode="json")
+        except Exception as exc:
+            notes.append(f"持仓调整研究建议生成失败: {exc}")
     if refresh_result.failures:
         notes.append("刷新存在降级或失败标的，请查看 refresh.failures。")
     for warning in data_audit.warnings:
@@ -75,6 +122,7 @@ def build_daily_signal_report(config: DailySignalConfig) -> DailySignalReport:
             name: [item.symbol for item in scores]
             for name, scores in rotation.pools.items()
         },
+        portfolio_advice=portfolio_advice,
         notes=notes,
     )
 
@@ -180,6 +228,38 @@ def format_report_markdown(report: DailySignalReport) -> str:
     for name, symbols in report.pools.items():
         lines.append(f"- {_pool_name(name)}: {', '.join(symbols) if symbols else '无'}")
 
+    if report.portfolio_advice:
+        advice = report.portfolio_advice
+        regime = advice.get("market_regime") or {}
+        lines.extend(
+            [
+                "",
+                "## 持仓调整研究建议",
+                "",
+                f"- 当前暴露: {_format_percent(advice.get('current_exposure'))}",
+                f"- 目标暴露: {_format_percent(advice.get('target_exposure'))}",
+                f"- 现金/低风险权重: {_format_percent(advice.get('cash_weight'))}",
+                f"- 估算换手: {_format_percent(advice.get('estimated_turnover'))}",
+                f"- 市场状态: {regime.get('label_zh', '无')}",
+                "",
+                "| 动作 | 代码 | 名称 | 当前权重 | 目标权重 | 差值 | 状态 | 轮动动作 |",
+                "| --- | --- | --- | ---: | ---: | ---: | --- | --- |",
+            ]
+        )
+        for item in advice.get("advice") or []:
+            lines.append(
+                "| "
+                f"{item['action']} | {item['symbol']} | {item['name']} | "
+                f"{_format_percent(item['current_weight'])} | "
+                f"{_format_percent(item['target_weight'])} | "
+                f"{_format_percent(item['delta_weight'])} | "
+                f"{item['state']} | {item['rotation_action']} |"
+            )
+        lines.extend(["", "### 持仓建议依据", ""])
+        for item in advice.get("advice") or []:
+            rationale = "；".join(item.get("rationale") or [])
+            lines.append(f"- {item['symbol']} {item['action']}: {rationale}")
+
     lines.extend(["", "## Notes", ""])
     for note in report.notes:
         lines.append(f"- {note}")
@@ -214,6 +294,9 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--lookback-days", type=int, default=365)
     parser.add_argument("--top-n", type=int, default=10)
+    parser.add_argument("--holdings-file")
+    parser.add_argument("--portfolio-target-count", type=int, default=5)
+    parser.add_argument("--min-trade-weight", type=float, default=0.03)
     parser.add_argument("--output-json")
     parser.add_argument("--output-md")
     args = parser.parse_args()
@@ -223,6 +306,9 @@ def main() -> int:
             limit=args.limit,
             lookback_days=args.lookback_days,
             top_n=args.top_n,
+            holdings_file=args.holdings_file,
+            portfolio_target_count=args.portfolio_target_count,
+            min_trade_weight=args.min_trade_weight,
         )
     )
     markdown = format_report_markdown(report)

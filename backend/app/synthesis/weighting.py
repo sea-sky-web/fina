@@ -4,13 +4,19 @@ from app.models import FactorCorrelationMatrix, FactorEvaluationReport
 from app.synthesis.selection import filter_factors
 
 FALLBACK_SIGNAL_WEIGHTS: dict[str, float] = {
-    "momentum_60d": 0.20,
-    "risk_adjusted_return_60d": 0.20,
-    "trend_strength_20_60d": 0.15,
-    "turnover_20d": 0.15,
-    "liquidity_stability_20d": 0.15,
-    "volatility_30d": 0.10,
+    "momentum_60d": 0.13,
+    "risk_adjusted_return_60d": 0.13,
+    "trend_strength_20_60d": 0.09,
+    "turnover_20d": 0.08,
+    "liquidity_stability_20d": 0.08,
+    "volatility_30d": 0.07,
     "max_drawdown_60d": 0.05,
+    "reversal_5d": 0.07,
+    "rsi_14d": 0.05,
+    "momentum_exhaustion": 0.05,
+    "turnover_concentration": 0.05,
+    "deviation_rate_60d": 0.05,
+    "eps_revision": 0.10,
 }
 
 

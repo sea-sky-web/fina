@@ -61,7 +61,7 @@ class AkshareEtfCollector(EtfDataCollector):
                     period="daily",
                     start_date=start_date,
                     end_date=end_date,
-                    adjust="",
+                    adjust="hfq",
                 )
             frame["source_endpoint"] = "fund_etf_hist_em"
         except Exception as em_exc:

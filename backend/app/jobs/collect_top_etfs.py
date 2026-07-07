@@ -103,7 +103,7 @@ def _source_endpoints(frame: pd.DataFrame) -> list[str]:
     return sorted(endpoints)
 
 
-def collect_top_etfs(limit: int = 100, lookback_days: int = 365) -> dict[str, object]:
+def collect_top_etfs(limit: int = 200, lookback_days: int = 2520) -> dict[str, object]:
     collector = AkshareEtfCollector()
     collected_at = datetime.now(UTC)
     date_key = collected_at.strftime("%Y%m%d")
@@ -236,7 +236,7 @@ def collect_top_etfs(limit: int = 100, lookback_days: int = 365) -> dict[str, ob
 def main() -> None:
     parser = argparse.ArgumentParser(description="Collect top liquidity China-listed ETFs.")
     parser.add_argument("--limit", type=int, default=100)
-    parser.add_argument("--lookback-days", type=int, default=365)
+    parser.add_argument("--lookback-days", type=int, default=2520)
     args = parser.parse_args()
     manifest = collect_top_etfs(limit=args.limit, lookback_days=args.lookback_days)
     print(json.dumps(manifest, ensure_ascii=False, indent=2))

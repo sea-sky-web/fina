@@ -109,8 +109,10 @@ def infer_etf_type(name: str | None, theme: str) -> str:
     text = f"{name or ''}{theme}".upper()
     if theme == "货币现金" or any(keyword in text for keyword in ["货币", "债", "国债", "政金债"]):
         return "货币债券"
-    if theme in {"宽基指数", "科创创业", "海外指数"}:
+    if theme in {"宽基指数", "科创创业"}:
         return "宽基"
+    if theme == "海外指数":
+        return "主题"
     if theme in {"红利低波"} or any(
         keyword in text for keyword in ["红利", "低波", "价值", "质量"]
     ):

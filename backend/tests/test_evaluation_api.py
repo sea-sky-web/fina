@@ -45,6 +45,48 @@ def _evaluation_basic_frame() -> pd.DataFrame:
     )
 
 
+def _rotation_evaluation_daily_frame() -> pd.DataFrame:
+    dates = pd.date_range("2025-01-01", periods=170, freq="B").date
+    rows = []
+    configs = {
+        "510300.SH": ("沪深300ETF", 1.00, 1.15, 300_000_000),
+        "AAA.SH": ("半导体ETF", 1.00, 1.90, 500_000_000),
+        "BBB.SH": ("芯片ETF", 1.00, 1.70, 420_000_000),
+        "CCC.SH": ("医药ETF", 1.00, 1.18, 260_000_000),
+        "DDD.SH": ("新能源ETF", 1.00, 0.82, 220_000_000),
+        "EEE.SH": ("证券ETF", 1.00, 0.78, 210_000_000),
+        "FFF.SH": ("消费ETF", 1.00, 1.05, 180_000_000),
+    }
+    for symbol, (_, start, end, amount) in configs.items():
+        closes = pd.Series(range(len(dates)), dtype="float64")
+        closes = start + (end - start) * closes / max(len(dates) - 1, 1)
+        for idx, day in enumerate(dates):
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "date": day,
+                    "close": float(closes.iloc[idx]),
+                    "amount": float(amount + idx * 100_000),
+                    "provider": "test",
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def _rotation_evaluation_basic_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {"symbol": "510300.SH", "name": "沪深300ETF", "index_name": None},
+            {"symbol": "AAA.SH", "name": "半导体ETF", "index_name": None},
+            {"symbol": "BBB.SH", "name": "芯片ETF", "index_name": None},
+            {"symbol": "CCC.SH", "name": "医药ETF", "index_name": None},
+            {"symbol": "DDD.SH", "name": "新能源ETF", "index_name": None},
+            {"symbol": "EEE.SH", "name": "证券ETF", "index_name": None},
+            {"symbol": "FFF.SH", "name": "消费ETF", "index_name": None},
+        ]
+    )
+
+
 def test_rebuild_factors_writes_processed_scores(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     settings.clean_dir.mkdir(parents=True, exist_ok=True)
@@ -85,3 +127,30 @@ def test_evaluation_api_returns_factor_and_pool_reports(monkeypatch, tmp_path) -
     assert len(pool["individual_reports"]) >= 1
     assert pool["correlation_matrix"]["factor_names"]
     assert pool["recommendations"]
+
+
+def test_rotation_evaluation_api_returns_pool_forward_returns(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    settings.clean_dir.mkdir(parents=True, exist_ok=True)
+    _rotation_evaluation_daily_frame().to_parquet(
+        settings.clean_dir / "etf_daily.parquet",
+        index=False,
+    )
+    _rotation_evaluation_basic_frame().to_parquet(
+        settings.clean_dir / "etf_basic.parquet",
+        index=False,
+    )
+
+    client = TestClient(app)
+    response = client.get(
+        "/api/evaluation/rotation/pool-forward-returns?top_n=3&horizons=5,20"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["horizons"] == [5, 20]
+    assert payload["signal_dates"]
+    assert payload["summaries"]
+    assert any(item["pool"] == "core_candidates" for item in payload["summaries"])
+    assert payload["observations"]
+    assert any("月末信号日" in note for note in payload["data_notes"])

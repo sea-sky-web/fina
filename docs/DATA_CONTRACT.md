@@ -108,6 +108,8 @@ unit-test frames do not count as valid production data.
 | ok | bool | `false` when production data is empty, stale, failed, or uses non-production providers |
 | status | string | `ok`, `warning`, or `error` |
 | provider | string | Manifest provider, currently expected to be `akshare` |
+| authority_level | string | Source authority tier. `research_connector` means usable for local research but not an official exchange/fund-company tie-out |
+| authority_notes | array | Human-readable source authority caveats |
 | manifest_status | string | Last collection status: `ok`, `degraded`, or `error` |
 | collected_at | timestamp | Last collection timestamp |
 | spot_source | string | Spot data source path, such as `akshare_spot` or cached fallback |
@@ -115,6 +117,9 @@ unit-test frames do not count as valid production data.
 | basic_rows | integer | Clean ETF basic row count |
 | daily_rows | integer | Clean ETF daily row count |
 | latest_trade_date | date | Latest date in `etf_daily` |
+| latest_expected_trade_date | date | Most recent expected market weekday as of audit time |
+| trading_days_lag | integer/null | Weekday count between `latest_trade_date` and `latest_expected_trade_date` |
+| freshness_basis | string | Freshness calculation basis, currently `weekdays` |
 | symbols_total | integer | Number of selected ETF symbols |
 | symbols_with_daily | integer | Number of symbols with clean daily bars |
 | daily_missing_symbols | array | Selected symbols missing daily bars |
@@ -122,6 +127,11 @@ unit-test frames do not count as valid production data.
 | cached_sources | array | Cached fallback sources used in the latest collection |
 | warnings | array | Non-blocking data quality caveats |
 | errors | array | Blocking data authenticity or freshness errors |
+
+`akshare` is accepted as a research connector in this project, not as a primary
+authority. A production publication workflow should tie out critical price,
+volume, IOPV, premium/discount, fee, and tracking-error fields against exchange,
+fund-company, index-provider, or licensed market-data sources.
 
 ## ETF Rotation Radar
 

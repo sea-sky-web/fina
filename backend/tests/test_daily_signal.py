@@ -57,6 +57,27 @@ def _report() -> DailySignalReport:
             "watchlist": [],
             "avoid": [],
         },
+        portfolio_advice={
+            "radar_date": "2026-06-30",
+            "current_exposure": 0.2,
+            "target_exposure": 0.3,
+            "cash_weight": 0.7,
+            "estimated_turnover": 0.25,
+            "market_regime": {"label_zh": "中性"},
+            "advice": [
+                {
+                    "symbol": "AAA.SH",
+                    "name": "半导体ETF",
+                    "current_weight": 0.0,
+                    "target_weight": 0.3,
+                    "delta_weight": 0.3,
+                    "action": "新增配置候选",
+                    "state": "景气上行 + 动量确认",
+                    "rotation_action": "主线候选",
+                    "rationale": ["进入目标组合。"],
+                }
+            ],
+        },
         notes=["本报告输出观察、配置和回避状态，不构成任何投资建议。"],
     )
 
@@ -69,6 +90,8 @@ def test_format_report_markdown_contains_rotation_radar_sections() -> None:
     assert "数据源真实性审计" in markdown
     assert "单 ETF 分析卡片" in markdown
     assert "状态池" in markdown
+    assert "持仓调整研究建议" in markdown
+    assert "| 新增配置候选 | AAA.SH | 半导体ETF | 0.0% | 30.0% | 30.0% |" in markdown
     assert "510300.SH" in markdown
     assert "景气上行 + 动量确认" in markdown
     assert "| 1 | 510300.SH | 沪深300ETF | 宽基 | 宽基指数 | 78.5 | 70.0 | data |" in markdown

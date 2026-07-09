@@ -136,6 +136,47 @@ class RotationReportModel(BaseModel):
     data_notes: list[str] = Field(default_factory=list)
 
 
+class PortfolioHoldingInput(BaseModel):
+    symbol: str
+    weight: float = Field(ge=0.0, le=1.0)
+
+
+class PortfolioAdviceRequest(BaseModel):
+    holdings: list[PortfolioHoldingInput] = Field(default_factory=list)
+    target_count: int = Field(default=5, ge=1, le=20)
+    universe_limit: int = Field(default=50, ge=1, le=200)
+    min_trade_weight: float = Field(default=0.03, ge=0.0, le=0.20)
+
+
+class PortfolioAdviceItem(BaseModel):
+    symbol: str
+    name: str
+    theme: str
+    etf_type: str
+    current_weight: float
+    target_weight: float
+    delta_weight: float
+    action: str
+    total_score: float | None = None
+    state: str = "未入选"
+    rotation_action: str = "未入选"
+    rationale: list[str] = Field(default_factory=list)
+    drivers: list[str] = Field(default_factory=list)
+    risk_notes: list[str] = Field(default_factory=list)
+
+
+class PortfolioAdviceReport(BaseModel):
+    radar_date: dt_date | None = None
+    current_exposure: float = 0.0
+    target_exposure: float = 0.0
+    cash_weight: float = 0.0
+    estimated_turnover: float = 0.0
+    market_regime: MarketRegimeSnapshot | None = None
+    advice: list[PortfolioAdviceItem] = Field(default_factory=list)
+    target_symbols: list[str] = Field(default_factory=list)
+    data_notes: list[str] = Field(default_factory=list)
+
+
 class FactorScore(BaseModel):
     symbol: str
     name: str

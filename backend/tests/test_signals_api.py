@@ -49,9 +49,9 @@ def test_research_signal_score_and_risk_notes(monkeypatch, tmp_path) -> None:
     signal = get_research_signal("AAA.SH")
 
     assert signal is not None
-    assert signal.research_score == 64.5
+    assert signal.research_score == 55.5
     assert signal.priority == "观察优先级中"
-    assert len(signal.components) == 6
+    assert len(signal.components) == 7
     assert any("流动性待验证" in note for note in signal.explanation.risk_notes)
     assert any("波动风险偏高" in note for note in signal.explanation.risk_notes)
     assert any("回撤风险偏高" in note for note in signal.explanation.risk_notes)
@@ -68,7 +68,7 @@ def test_research_signals_api(monkeypatch, tmp_path) -> None:
     assert list_response.status_code == 200
     assert list_response.json()[0]["symbol"] == "AAA.SH"
     assert detail_response.status_code == 200
-    assert detail_response.json()["research_score"] == 64.5
+    assert detail_response.json()["research_score"] == 55.5
 
 
 def test_signal_performance_route_is_not_captured_by_symbol_route(monkeypatch, tmp_path) -> None:

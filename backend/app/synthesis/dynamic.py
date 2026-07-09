@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from app.factors.registry import FACTOR_REGISTRY
 
-RISK_FACTOR_NAMES = {"volatility_30d", "max_drawdown_60d", "liquidity_stability_20d"}
+RISK_FACTOR_NAMES = {"volatility_30d", "max_drawdown_60d", "liquidity_stability_20d", "turnover_20d"}
 RETURN_FACTOR_NAMES = {"momentum_60d", "risk_adjusted_return_60d", "trend_strength_20_60d"}
 
 

@@ -54,9 +54,10 @@ def test_icir_weights_apply_correlation_penalty_and_normalize() -> None:
     reports = [
         _report("momentum_60d", 0.40),
         _report("liquidity_stability_20d", 0.20),
+        _report("trend_strength_20_60d", 0.30),
     ]
     matrix = FactorCorrelationMatrix(
-        factor_names=["momentum_60d", "liquidity_stability_20d"],
+        factor_names=["momentum_60d", "liquidity_stability_20d", "trend_strength_20_60d"],
         redundant_pairs=[
             RedundantFactorPair(
                 factor_a="momentum_60d",
@@ -68,7 +69,7 @@ def test_icir_weights_apply_correlation_penalty_and_normalize() -> None:
 
     weights = icir_weights(reports, matrix)
 
-    assert set(weights) == {"momentum_60d", "liquidity_stability_20d"}
+    assert set(weights) == {"momentum_60d", "liquidity_stability_20d", "trend_strength_20_60d"}
     assert round(sum(weights.values()), 8) == 1
     assert weights["momentum_60d"] > weights["liquidity_stability_20d"]
 

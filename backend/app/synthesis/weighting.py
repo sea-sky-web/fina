@@ -4,9 +4,10 @@ from app.models import FactorCorrelationMatrix, FactorEvaluationReport
 from app.synthesis.selection import filter_factors
 
 FALLBACK_SIGNAL_WEIGHTS: dict[str, float] = {
-    "momentum_60d": 0.25,
-    "risk_adjusted_return_60d": 0.25,
-    "trend_strength_20_60d": 0.20,
+    "momentum_60d": 0.20,
+    "risk_adjusted_return_60d": 0.20,
+    "trend_strength_20_60d": 0.15,
+    "turnover_20d": 0.15,
     "liquidity_stability_20d": 0.15,
     "volatility_30d": 0.10,
     "max_drawdown_60d": 0.05,
@@ -51,6 +52,7 @@ def icir_weights(
     *,
     min_icir: float = 0.2,
     min_ic_pos_ratio: float = 0.55,
+    min_factors: int = 3,
 ) -> dict[str, float]:
     """Build ICIR-based weights with a simple high-correlation penalty."""
     selected = filter_factors(
@@ -59,7 +61,7 @@ def icir_weights(
         min_icir=min_icir,
         min_ic_pos_ratio=min_ic_pos_ratio,
     )
-    if not selected:
+    if len(selected) < min_factors:
         return FALLBACK_SIGNAL_WEIGHTS.copy()
 
     reports_by_name = {report.factor_name: report for report in evaluation_reports}

@@ -34,3 +34,4 @@ data/qlib/
 
 # Logs
 *.log
+artifacts/

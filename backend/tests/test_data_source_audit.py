@@ -6,12 +6,18 @@ from fastapi.testclient import TestClient
 
 from app.core.config import settings
 from app.main import app
+from app.services import data_source_audit as audit_module
 from app.services.data_source_audit import audit_data_sources
 from app.storage.parquet_store import write_parquet
 
 
-def _write_clean_data(tmp_path, *, provider: str = "akshare") -> None:
-    monkey_date = date.today()
+def _write_clean_data(
+    tmp_path,
+    *,
+    provider: str = "akshare",
+    latest_date: date | None = None,
+) -> None:
+    monkey_date = latest_date or date.today()
     clean_dir = tmp_path / "clean"
     clean_dir.mkdir(parents=True, exist_ok=True)
     (clean_dir / "collection_manifest.json").write_text(
@@ -75,6 +81,8 @@ def test_audit_data_sources_accepts_real_akshare_data(monkeypatch, tmp_path) -> 
     assert audit.ok is True
     assert audit.status == "ok"
     assert audit.provider == "akshare"
+    assert audit.authority_level == "research_connector"
+    assert audit.authority_notes
     assert audit.source_endpoints == ["fund_etf_hist_sina", "fund_etf_spot_em"]
 
 
@@ -89,6 +97,24 @@ def test_audit_data_sources_rejects_mock_provider(monkeypatch, tmp_path) -> None
     assert any("non-production provider" in error for error in audit.errors)
 
 
+def test_audit_data_sources_uses_weekday_lag(monkeypatch, tmp_path) -> None:
+    class FrozenDate(date):
+        @classmethod
+        def today(cls) -> date:
+            return date(2026, 7, 5)
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(audit_module, "date", FrozenDate)
+    _write_clean_data(tmp_path, latest_date=date(2026, 7, 1))
+
+    audit = audit_data_sources()
+
+    assert audit.latest_expected_trade_date == date(2026, 7, 3)
+    assert audit.trading_days_lag == 2
+    assert audit.ok is True
+    assert not any("calendar days" in error for error in audit.errors)
+
+
 def test_data_source_audit_endpoint(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     _write_clean_data(tmp_path)
@@ -100,3 +126,4 @@ def test_data_source_audit_endpoint(monkeypatch, tmp_path) -> None:
     payload = response.json()
     assert payload["ok"] is True
     assert payload["provider"] == "akshare"
+    assert payload["authority_level"] == "research_connector"

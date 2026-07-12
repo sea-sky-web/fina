@@ -10,6 +10,7 @@ from app.models import (
     FactorICStats,
     FactorPoolEvaluationReport,
     FactorQuantileReturns,
+    RotationEvaluationReport,
 )
 from app.services.evaluation_service import (
     calculate_ic_stats,
@@ -17,6 +18,7 @@ from app.services.evaluation_service import (
     default_horizons,
     generate_factor_evaluation_report,
     generate_factor_pool_report,
+    generate_rotation_evaluation_report,
 )
 
 router = APIRouter()
@@ -48,6 +50,21 @@ def pool_report(
         end=end,
         horizons=_parse_horizons(horizons),
         processed=processed,
+    )
+
+
+@router.get("/rotation/pool-forward-returns", response_model=RotationEvaluationReport)
+def rotation_pool_forward_returns(
+    start: Annotated[date | None, Query()] = None,
+    end: Annotated[date | None, Query()] = None,
+    horizons: Annotated[str | None, Query()] = None,
+    top_n: Annotated[int, Query(ge=1, le=50)] = 10,
+) -> RotationEvaluationReport:
+    return generate_rotation_evaluation_report(
+        start=start,
+        end=end,
+        horizons=_parse_horizons(horizons),
+        top_n=top_n,
     )
 
 

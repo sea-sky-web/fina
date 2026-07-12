@@ -198,6 +198,30 @@ PYTHONPATH=backend backend/.venv/bin/python -m app.jobs.daily_signal \
   --output-json artifacts/daily-signal.json
 ```
 
+## 8. 轮动雷达评估闭环
+
+轮动雷达的历史表现评估入口是：
+
+```text
+GET /api/evaluation/rotation/pool-forward-returns?top_n=10&horizons=5,10,20
+```
+
+该评估不会用当前排名倒推历史。它会在每个月末信号日，基于当时及以前的
+clean 日线重算行业/主题轮动池，再观察未来 5/10/20 个交易日的池子平均收益、
+正收益率和相对 `510300.SH` 的胜率。
+
+输出包括：
+
+| 字段 | 含义 |
+| --- | --- |
+| `summaries` | 各状态池在各观察窗口的聚合表现 |
+| `observations` | 每个信号日、每个状态池的单次观察结果 |
+| `signal_dates` | 参与评估的月末信号日 |
+| `data_notes` | 样本覆盖、计算假设和数据限制 |
+
+这个接口用于回答“主线候选是否真的优于观察池和回避池”，后续调权重、阈值和
+状态标签时应优先查看这条评估结果。
+
 如果要加入当前持仓建议，可以准备 CSV：
 
 ```csv
@@ -229,13 +253,14 @@ PYTHONPATH=backend backend/.venv/bin/python -m app.jobs.daily_signal \
 - 每个持仓或目标标的的当前权重、目标权重、差值和动作标签
 - 每个动作的依据说明
 
-## 8. 业绩验证
+## 9. 业绩验证
 
 业绩不是从当前推荐直接推断，而是通过历史回测和信号跟踪验证：
 
 | 模块 | 入口 | 输出 |
 | --- | --- | --- |
 | 研究信号回测 | `GET /api/backtests/research-signal` | 净值曲线、收益、波动、回撤、换手、持仓快照 |
+| 风险管理轮动核心池回测 | `GET /api/backtests/rotation-core?top_n=5&cost_bps=5` | 月末重算纯数据 `core_candidates`、默认 `risk_score >= 60`、组合风险约束、次日成交、扣成本、验证摘要 |
 | Walk-forward 验证 | `backend/app/backtest/walk_forward.py` | 训练期选因子、测试期样本外表现 |
 | 信号快照跟踪 | `POST /api/signals/snapshot` + `GET /api/signals/performance` | 历史 Top 信号未来收益表现 |
 | 因子诊断 | `GET /api/factors/diagnostics` | 因子分布、Top/Bottom 未来收益、排名稳定性 |
@@ -243,3 +268,17 @@ PYTHONPATH=backend backend/.venv/bin/python -m app.jobs.daily_signal \
 回测链路按历史日期重新生成分数和调仓组合，再用下一阶段实际日收益计算组合表现。核心指标包括累计收益、年化收益、年化波动、最大回撤、类似 Sharpe、日胜率、平均换手和最终净值。
 
 因此，最终业绩来自历史日线的可复现计算，而不是来自当前报告的静态排序。
+
+每个回测结果会输出 `validation`：
+
+| 字段 | 含义 |
+| --- | --- |
+| `status` | `fail`、`research_pass` 或 `production_pass` |
+| `excess_return_vs_benchmark` | 相对指定基准的累计超额收益 |
+| `excess_return_vs_universe` | 相对 ETF 池等权基准的累计超额收益 |
+| `checks` | 跑赢基准、跑赢等权池、风险调整收益、回撤、样本数、样本外验证等门槛 |
+
+`research_pass` 只表示当前本地历史样本中扣成本后跑赢核心基准；它不是生产批准。
+`production_pass` 还需要至少 36 次月度调仓、样本外 walk-forward、回撤门槛和数据源审计一起通过。
+历史回测默认禁用人工 CSV 输入，避免把当前主观研究判断穿越到过去；日报和当前组合建议仍可使用人工输入作为显式覆盖层。
+`rotation-core` 默认使用 `risk_managed=true`：市场状态控制风险暴露，单只/主题/高相关簇限制集中度，无合格标的的月份转为现金。若要只看信号原始强度，可显式传 `risk_managed=false&min_risk_score=0` 作对照。

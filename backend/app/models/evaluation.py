@@ -86,3 +86,41 @@ class FactorPoolEvaluationReport(BaseModel):
     cluster_groups: list[FactorClusterGroup] = Field(default_factory=list)
     pool_health: str = "因子不足"
     recommendations: list[str] = Field(default_factory=list)
+
+
+class RotationPoolObservation(BaseModel):
+    signal_date: dt_date
+    pool: str
+    horizon_days: int
+    symbol_count: int = 0
+    mean_forward_return: float | None = None
+    benchmark_return: float | None = None
+    excess_return: float | None = None
+    positive_rate: float | None = None
+    benchmark_win_rate: float | None = None
+    symbols: list[str] = Field(default_factory=list)
+
+
+class RotationPoolForwardSummary(BaseModel):
+    pool: str
+    horizon_days: int
+    signal_count: int = 0
+    sample_count: int = 0
+    mean_forward_return: float | None = None
+    median_forward_return: float | None = None
+    positive_rate: float | None = None
+    benchmark_mean_return: float | None = None
+    excess_mean_return: float | None = None
+    benchmark_win_rate: float | None = None
+
+
+class RotationEvaluationReport(BaseModel):
+    generated_at: datetime
+    period_start: dt_date | None = None
+    period_end: dt_date | None = None
+    signal_dates: list[dt_date] = Field(default_factory=list)
+    horizons: list[int] = Field(default_factory=list)
+    top_n: int = 10
+    summaries: list[RotationPoolForwardSummary] = Field(default_factory=list)
+    observations: list[RotationPoolObservation] = Field(default_factory=list)
+    data_notes: list[str] = Field(default_factory=list)

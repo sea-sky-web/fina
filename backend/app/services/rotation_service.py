@@ -480,8 +480,12 @@ def build_rotation_report(
     *,
     top_n: int = 10,
     input_path: Path | None = None,
+    target_date: date | None = None,
+    use_manual_inputs: bool = True,
 ) -> RotationReport:
     daily = _clean_daily()
+    if target_date is not None and not daily.empty:
+        daily = daily[daily["date"] <= target_date].copy()
     metrics, target_date = _metric_frame(daily)
     if metrics.empty or target_date is None:
         return RotationReport(
@@ -492,7 +496,7 @@ def build_rotation_report(
         )
 
     basic_lookup = _basic_lookup()
-    by_symbol, by_theme = _load_rotation_inputs(input_path)
+    by_symbol, by_theme = _load_rotation_inputs(input_path) if use_manual_inputs else ({}, {})
     candidates: list[dict[str, Any]] = []
     excluded_counts: dict[str, int] = {}
     for symbol, row in metrics.iterrows():
@@ -616,9 +620,12 @@ def build_rotation_report(
     data_notes = [
         "v0.2 仅比较行业和主题 ETF；货币债券、宽基、风格及其他 ETF 不进入本轮动雷达。",
         "景气分默认由同主题市场数据代理生成，使用相对收益、均线、成交额变化和风险分，人工景气输入只作可选修正。",
-        f"人工输入文件: {str(input_path or settings.rotation_input_path)}。",
         "估值和结构质量仍来自人工输入；缺失时采用中性分，不会假装已有完整基本面数据。",
     ]
+    if use_manual_inputs:
+        data_notes.append(f"人工输入文件: {str(input_path or settings.rotation_input_path)}。")
+    else:
+        data_notes.append("本次禁用人工输入，适用于避免历史回测中的人工判断穿越。")
     if excluded_counts:
         excluded = "、".join(
             f"{name} {count} 只" for name, count in sorted(excluded_counts.items())

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pandas as pd
@@ -11,6 +11,14 @@ from app.models import DataSourceAudit
 from app.storage.parquet_store import read_parquet
 
 APPROVED_MARKET_DATA_PROVIDERS = {"akshare"}
+PROVIDER_AUTHORITY_LEVELS = {
+    "akshare": (
+        "research_connector",
+        "AKShare is accepted for local research refreshes, but it is not an exchange, "
+        "fund company, or official index provider. Production publication should tie out "
+        "critical fields against primary sources.",
+    ),
+}
 NON_PRODUCTION_PROVIDER_VALUES = {
     "demo",
     "fake",
@@ -64,6 +72,29 @@ def _latest_trade_date(frame: pd.DataFrame) -> date | None:
     return pd.to_datetime(frame["date"], errors="coerce").dt.date.max()
 
 
+def _is_weekday(value: date) -> bool:
+    return value.weekday() < 5
+
+
+def _latest_expected_trade_date(today: date | None = None) -> date:
+    current = today or date.today()
+    while not _is_weekday(current):
+        current -= timedelta(days=1)
+    return current
+
+
+def _weekday_lag(latest: date, expected: date) -> int:
+    if latest >= expected:
+        return 0
+    current = latest + timedelta(days=1)
+    lag = 0
+    while current <= expected:
+        if _is_weekday(current):
+            lag += 1
+        current += timedelta(days=1)
+    return lag
+
+
 def _cached_sources(manifest: dict[str, Any]) -> list[str]:
     output = []
     spot_source = str(manifest.get("spot_source") or "")
@@ -89,6 +120,13 @@ def audit_data_sources() -> DataSourceAudit:
         errors.append("clean etf_daily is empty; no production daily bars are available.")
 
     provider = str(manifest.get("provider") or "unknown").lower()
+    authority_level, authority_note = PROVIDER_AUTHORITY_LEVELS.get(
+        provider,
+        (
+            "unknown",
+            "Provider authority level is unknown; treat the dataset as unaudited.",
+        ),
+    )
     provider_values = _provider_values(etf_basic, etf_daily)
     if provider not in APPROVED_MARKET_DATA_PROVIDERS:
         errors.append(f"manifest provider is not approved for production market data: {provider}.")
@@ -115,13 +153,16 @@ def audit_data_sources() -> DataSourceAudit:
         )
 
     latest_trade_date = _latest_trade_date(etf_daily)
+    expected_trade_date = _latest_expected_trade_date()
+    trading_days_lag: int | None = None
     if latest_trade_date is None:
         errors.append("latest trade date is unavailable from clean etf_daily.")
     else:
-        age_days = (date.today() - latest_trade_date).days
-        if age_days > settings.data_stale_after_days:
+        trading_days_lag = _weekday_lag(latest_trade_date, expected_trade_date)
+        if trading_days_lag > settings.data_stale_after_days:
             errors.append(
-                f"clean daily data is {age_days} calendar days behind local date; "
+                f"clean daily data is {trading_days_lag} trading days behind "
+                f"expected latest trade date {expected_trade_date.isoformat()}; "
                 "refresh is required."
             )
 
@@ -165,6 +206,8 @@ def audit_data_sources() -> DataSourceAudit:
         ok=not errors,
         status=status,
         provider=provider,
+        authority_level=authority_level,
+        authority_notes=[authority_note],
         manifest_status=manifest_status or None,
         collected_at=collected_at,
         spot_source=str(manifest.get("spot_source") or "") or None,
@@ -172,6 +215,9 @@ def audit_data_sources() -> DataSourceAudit:
         basic_rows=int(len(etf_basic)),
         daily_rows=int(len(etf_daily)),
         latest_trade_date=latest_trade_date,
+        latest_expected_trade_date=expected_trade_date,
+        trading_days_lag=trading_days_lag,
+        freshness_basis="weekdays",
         symbols_total=symbols_total,
         symbols_with_daily=symbols_with_daily,
         daily_missing_symbols=daily_missing_symbols,

@@ -141,6 +141,44 @@ def _write_backtest_fixture(
     )
 
 
+def _write_rotation_core_fixture() -> None:
+    settings.clean_dir.mkdir(parents=True, exist_ok=True)
+    dates = pd.date_range("2025-01-01", periods=180, freq="B").date
+    configs = {
+        "510300.SH": ("沪深300ETF", 1.00, 1.12, 300_000_000),
+        "AAA.SH": ("半导体ETF", 1.00, 1.95, 600_000_000),
+        "BBB.SH": ("芯片ETF", 1.00, 1.75, 500_000_000),
+        "CCC.SH": ("医药ETF", 1.00, 1.02, 180_000_000),
+        "DDD.SH": ("新能源ETF", 1.00, 0.86, 160_000_000),
+    }
+    daily_rows = []
+    for symbol, (_, start, end, amount) in configs.items():
+        closes = pd.Series(range(len(dates)), dtype="float64")
+        closes = start + (end - start) * closes / max(len(dates) - 1, 1)
+        for idx, current in enumerate(dates):
+            daily_rows.append(
+                {
+                    "symbol": symbol,
+                    "date": current,
+                    "close": float(closes.iloc[idx]),
+                    "open": float(closes.iloc[idx]),
+                    "high": float(closes.iloc[idx]) * 1.01,
+                    "low": float(closes.iloc[idx]) * 0.99,
+                    "volume": 1000,
+                    "amount": float(amount + idx * 100_000),
+                    "factor": 1.0,
+                    "provider": "test",
+                }
+            )
+    pd.DataFrame(daily_rows).to_parquet(settings.clean_dir / "etf_daily.parquet", index=False)
+    pd.DataFrame(
+        [
+            {"symbol": symbol, "name": name, "index_name": None}
+            for symbol, (name, *_rest) in configs.items()
+        ]
+    ).to_parquet(settings.clean_dir / "etf_basic.parquet", index=False)
+
+
 def test_research_signal_backtest_api_returns_portfolio_and_benchmarks(
     monkeypatch,
     tmp_path,
@@ -161,6 +199,7 @@ def test_research_signal_backtest_api_returns_portfolio_and_benchmarks(
     assert payload["holdings"][0]["effective_date"] == "2026-04-01"
     assert payload["equity_curve"][0]["date"] == "2026-04-01"
     assert payload["holdings"][0]["holdings"][0]["symbol"] == "AAA.SH"
+    assert payload["validation"] is not None
 
 
 def test_research_signal_backtest_cost_reduces_equity(monkeypatch, tmp_path) -> None:
@@ -250,3 +289,32 @@ def test_research_signal_backtest_applies_risk_controls(monkeypatch, tmp_path) -
     assert result.holdings[0].cash_weight > 0
     assert all(holding.weight <= 0.30 for holding in result.holdings[0].holdings)
     assert result.holdings[0].regime is not None
+
+
+def test_rotation_core_backtest_api_returns_validated_research_pass(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    _write_rotation_core_fixture()
+    client = TestClient(app)
+
+    response = client.get("/api/backtests/rotation-core?top_n=2&cost_bps=5")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["config"]["strategy"] == "rotation_core_risk_managed"
+    assert payload["config"]["risk_managed"] is True
+    assert payload["config"]["pool"] == "core_candidates"
+    assert payload["config"]["min_risk_score"] == 60.0
+    assert payload["metrics"]["rebalance_count"] >= 2
+    assert payload["benchmarks"]
+    assert payload["holdings"][0]["effective_date"] > payload["holdings"][0]["rebalance_date"]
+    assert payload["risk_summary"]["average_cash_weight"] is not None
+    assert payload["validation"]["status"] in {"research_pass", "production_pass"}
+    assert payload["validation"]["excess_return_vs_benchmark"] > 0
+    assert payload["validation"]["excess_return_vs_universe"] > 0
+    assert any(
+        item["key"] == "minimum_rebalances"
+        for item in payload["validation"]["checks"]
+    )

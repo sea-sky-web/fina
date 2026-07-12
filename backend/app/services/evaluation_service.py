@@ -18,13 +18,19 @@ from app.models import (
     FactorQuantileReturns,
     FactorTurnoverStats,
     RedundantFactorPair,
+    RotationEvaluationReport,
+    RotationPoolForwardSummary,
+    RotationPoolObservation,
 )
 from app.services.cache import FingerprintCache, clean_data_fingerprint
 from app.services.factor_service import _read_factors
+from app.services.rotation_service import BENCHMARK_SYMBOL, build_rotation_report
 from app.storage.parquet_store import read_parquet
 
 _REPORT_CACHE = FingerprintCache(max_items=128)
 _POOL_REPORT_CACHE = FingerprintCache(max_items=32)
+_ROTATION_REPORT_CACHE = FingerprintCache(max_items=16)
+ROTATION_EVALUATION_POOLS = ("core_candidates", "watchlist", "avoid")
 
 
 def default_horizons() -> list[int]:
@@ -629,4 +635,214 @@ def generate_factor_pool_report(
         recommendations=recommendations,
     )
     _POOL_REPORT_CACHE.set(cache_key, report)
+    return report
+
+
+def _rotation_daily_frame() -> pd.DataFrame:
+    daily = read_parquet(settings.clean_dir / "etf_daily.parquet")
+    required = {"symbol", "date", "close"}
+    if daily.empty or not required.issubset(daily.columns):
+        return pd.DataFrame(columns=["symbol", "date", "close"])
+    frame = daily[["symbol", "date", "close"]].copy()
+    frame["date"] = pd.to_datetime(frame["date"]).dt.date
+    frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
+    return frame.dropna(subset=["symbol", "date", "close"]).sort_values(["symbol", "date"])
+
+
+def _rotation_signal_dates(
+    daily: pd.DataFrame,
+    *,
+    start: date | None,
+    end: date | None,
+    max_horizon: int,
+) -> list[date]:
+    if daily.empty:
+        return []
+    trading_dates = sorted(daily["date"].dropna().unique())
+    if len(trading_dates) <= max_horizon:
+        return []
+    latest_usable_date = trading_dates[-max_horizon - 1]
+    by_date = pd.DataFrame({"date": trading_dates})
+    by_date = by_date[by_date["date"] <= latest_usable_date]
+    if start is not None:
+        by_date = by_date[by_date["date"] >= start]
+    if end is not None:
+        by_date = by_date[by_date["date"] <= end]
+    if by_date.empty:
+        return []
+    by_date["month"] = by_date["date"].map(lambda value: (value.year, value.month))
+    return list(by_date.groupby("month")["date"].max().sort_values())
+
+
+def _rotation_forward_return_maps(
+    daily: pd.DataFrame,
+    horizons: list[int],
+) -> dict[int, dict[tuple[str, date], float]]:
+    maps: dict[int, dict[tuple[str, date], float]] = {}
+    base = daily[["symbol", "date", "close"]].copy().sort_values(["symbol", "date"])
+    for horizon in horizons:
+        frame = base.copy()
+        frame["future_close"] = frame.groupby("symbol")["close"].shift(-horizon)
+        frame["forward_return"] = frame["future_close"] / frame["close"] - 1
+        rows = frame.dropna(subset=["forward_return"])
+        maps[horizon] = {
+            (str(row["symbol"]), row["date"]): float(row["forward_return"])
+            for row in rows.to_dict(orient="records")
+        }
+    return maps
+
+
+def _median(values: list[float]) -> float | None:
+    return _clean_float(pd.Series(values, dtype="float64").median()) if values else None
+
+
+def _mean(values: list[float]) -> float | None:
+    return _clean_float(pd.Series(values, dtype="float64").mean()) if values else None
+
+
+def _rate(flags: list[bool]) -> float | None:
+    return float(sum(flags) / len(flags)) if flags else None
+
+
+def generate_rotation_evaluation_report(
+    *,
+    start: date | None = None,
+    end: date | None = None,
+    horizons: list[int] | None = None,
+    top_n: int = 10,
+) -> RotationEvaluationReport:
+    requested_horizons = sorted({item for item in (horizons or [5, 10, 20]) if item > 0})
+    if not requested_horizons:
+        requested_horizons = [5, 10, 20]
+    cache_key = (
+        "rotation",
+        start,
+        end,
+        tuple(requested_horizons),
+        top_n,
+        clean_data_fingerprint(["etf_daily.parquet", "etf_basic.parquet"]),
+    )
+    cached = _ROTATION_REPORT_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    daily = _rotation_daily_frame()
+    if daily.empty:
+        return RotationEvaluationReport(
+            generated_at=datetime.now(UTC),
+            horizons=requested_horizons,
+            top_n=top_n,
+            data_notes=["缺少 clean ETF 日线数据，无法评估轮动雷达历史表现。"],
+        )
+
+    signal_dates = _rotation_signal_dates(
+        daily,
+        start=start,
+        end=end,
+        max_horizon=max(requested_horizons),
+    )
+    forward_maps = _rotation_forward_return_maps(daily, requested_horizons)
+    observations: list[RotationPoolObservation] = []
+    pool_samples: dict[tuple[str, int], list[float]] = {}
+    pool_benchmarks: dict[tuple[str, int], list[float]] = {}
+    pool_excess: dict[tuple[str, int], list[float]] = {}
+    pool_positive_flags: dict[tuple[str, int], list[bool]] = {}
+    pool_benchmark_flags: dict[tuple[str, int], list[bool]] = {}
+    signal_counts: dict[tuple[str, int], set[date]] = {}
+    notes: list[str] = [
+        "轮动评估按月末信号日重算当时的行业/主题轮动池，再观察未来交易日收益。",
+        "当前使用本地 clean 日线；交易日按数据中实际日期推进，不引入未来行情。",
+        "历史评估禁用人工输入 CSV，避免主观研究判断穿越到过去。",
+    ]
+
+    for signal_date in signal_dates:
+        rotation = build_rotation_report(
+            top_n=top_n,
+            target_date=signal_date,
+            use_manual_inputs=False,
+        )
+        if rotation.date is None:
+            continue
+        for pool in ROTATION_EVALUATION_POOLS:
+            symbols = [item.symbol for item in rotation.pools.get(pool, [])]
+            if not symbols:
+                continue
+            for horizon in requested_horizons:
+                forward_map = forward_maps[horizon]
+                returns = [
+                    forward_map[(symbol, rotation.date)]
+                    for symbol in symbols
+                    if (symbol, rotation.date) in forward_map
+                ]
+                if not returns:
+                    continue
+                benchmark_return = forward_map.get((BENCHMARK_SYMBOL, rotation.date))
+                mean_return = _mean(returns)
+                excess_return = (
+                    _clean_float(mean_return - benchmark_return)
+                    if mean_return is not None and benchmark_return is not None
+                    else None
+                )
+                benchmark_flags = (
+                    [value > benchmark_return for value in returns]
+                    if benchmark_return is not None
+                    else []
+                )
+                key = (pool, horizon)
+                pool_samples.setdefault(key, []).extend(returns)
+                pool_positive_flags.setdefault(key, []).extend(value > 0 for value in returns)
+                signal_counts.setdefault(key, set()).add(rotation.date)
+                if benchmark_return is not None:
+                    pool_benchmarks.setdefault(key, []).append(benchmark_return)
+                    pool_excess.setdefault(key, []).extend(
+                        value - benchmark_return for value in returns
+                    )
+                    pool_benchmark_flags.setdefault(key, []).extend(benchmark_flags)
+                observations.append(
+                    RotationPoolObservation(
+                        signal_date=rotation.date,
+                        pool=pool,
+                        horizon_days=horizon,
+                        symbol_count=len(returns),
+                        mean_forward_return=mean_return,
+                        benchmark_return=benchmark_return,
+                        excess_return=excess_return,
+                        positive_rate=_rate([value > 0 for value in returns]),
+                        benchmark_win_rate=_rate(benchmark_flags),
+                        symbols=symbols,
+                    )
+                )
+
+    summaries = [
+        RotationPoolForwardSummary(
+            pool=pool,
+            horizon_days=horizon,
+            signal_count=len(signal_counts.get((pool, horizon), set())),
+            sample_count=len(pool_samples.get((pool, horizon), [])),
+            mean_forward_return=_mean(pool_samples.get((pool, horizon), [])),
+            median_forward_return=_median(pool_samples.get((pool, horizon), [])),
+            positive_rate=_rate(pool_positive_flags.get((pool, horizon), [])),
+            benchmark_mean_return=_mean(pool_benchmarks.get((pool, horizon), [])),
+            excess_mean_return=_mean(pool_excess.get((pool, horizon), [])),
+            benchmark_win_rate=_rate(pool_benchmark_flags.get((pool, horizon), [])),
+        )
+        for pool in ROTATION_EVALUATION_POOLS
+        for horizon in requested_horizons
+        if (pool, horizon) in pool_samples
+    ]
+    if not summaries:
+        notes.append("可评估样本不足；请确认 clean 日线覆盖足够历史和未来观察窗口。")
+
+    report = RotationEvaluationReport(
+        generated_at=datetime.now(UTC),
+        period_start=signal_dates[0] if signal_dates else None,
+        period_end=signal_dates[-1] if signal_dates else None,
+        signal_dates=signal_dates,
+        horizons=requested_horizons,
+        top_n=top_n,
+        summaries=summaries,
+        observations=observations,
+        data_notes=notes,
+    )
+    _ROTATION_REPORT_CACHE.set(cache_key, report)
     return report

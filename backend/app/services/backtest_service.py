@@ -17,6 +17,8 @@ from app.models import (
     BacktestMetrics,
     BacktestResult,
     BacktestRiskSummary,
+    BacktestValidationCheck,
+    BacktestValidationSummary,
     MarketRegimeSnapshot,
 )
 from app.risk import (
@@ -32,6 +34,7 @@ from app.services.evaluation_service import (
     generate_factor_pool_report,
 )
 from app.services.factor_service import _read_factors
+from app.services.rotation_service import build_rotation_report
 from app.services.theme_classifier import infer_etf_theme
 from app.storage.parquet_store import read_parquet
 from app.synthesis import FALLBACK_SIGNAL_WEIGHTS, adjust_weights_for_regime, icir_weights
@@ -39,6 +42,8 @@ from app.synthesis import FALLBACK_SIGNAL_WEIGHTS, adjust_weights_for_regime, ic
 TRADING_DAYS_PER_YEAR = 252
 DEFAULT_BACKTEST_UNIVERSE_SIZE = 100
 DEFAULT_MIN_HISTORY_DAYS = 60
+DEFAULT_ROTATION_CORE_TOP_N = 5
+PRODUCTION_MIN_REBALANCES = 36
 _BACKTEST_CACHE = FingerprintCache(max_items=32)
 _WALK_FORWARD_CACHE = FingerprintCache(max_items=16)
 
@@ -450,6 +455,140 @@ def _risk_summary(snapshots: list[BacktestHoldingSnapshot]) -> BacktestRiskSumma
     )
 
 
+def _benchmark_metrics(
+    benchmarks: list[BacktestBenchmark],
+    *,
+    key: str | None = None,
+    symbol: str | None = None,
+) -> BacktestMetrics | None:
+    for benchmark in benchmarks:
+        if key is not None and benchmark.key == key:
+            return benchmark.metrics
+        if symbol is not None and benchmark.symbol == symbol:
+            return benchmark.metrics
+    return None
+
+
+def _greater(value: float | None, threshold: float | None) -> bool:
+    return value is not None and threshold is not None and value > threshold
+
+
+def _not_worse_drawdown(value: float | None, threshold: float | None) -> bool:
+    return value is not None and threshold is not None and value >= threshold
+
+
+def _validation_summary(
+    *,
+    metrics: BacktestMetrics,
+    benchmarks: list[BacktestBenchmark],
+    benchmark: str,
+    rebalance_count: int,
+    has_oos_validation: bool = False,
+) -> BacktestValidationSummary:
+    symbol_metrics = _benchmark_metrics(benchmarks, symbol=benchmark)
+    universe_metrics = _benchmark_metrics(benchmarks, key="universe_equal_weight")
+    benchmark_return = (
+        symbol_metrics.cumulative_return if symbol_metrics is not None else None
+    )
+    universe_return = (
+        universe_metrics.cumulative_return if universe_metrics is not None else None
+    )
+    benchmark_drawdown = symbol_metrics.max_drawdown if symbol_metrics is not None else None
+
+    checks = [
+        BacktestValidationCheck(
+            key="beat_symbol_benchmark",
+            label=f"扣成本后跑赢 {benchmark}",
+            passed=_greater(metrics.cumulative_return, benchmark_return),
+            value=metrics.cumulative_return,
+            threshold=benchmark_return,
+            severity="error",
+            message="策略累计收益必须高于指定基准，否则不能称为回测跑赢。",
+        ),
+        BacktestValidationCheck(
+            key="beat_universe_equal_weight",
+            label="扣成本后跑赢 ETF 等权池",
+            passed=_greater(metrics.cumulative_return, universe_return),
+            value=metrics.cumulative_return,
+            threshold=universe_return,
+            severity="error",
+            message="策略还需要跑赢同数据池的朴素等权基准，避免只是在吃 ETF 池 beta。",
+        ),
+        BacktestValidationCheck(
+            key="positive_risk_adjusted_return",
+            label="风险调整收益为正",
+            passed=metrics.sharpe_like is not None and metrics.sharpe_like > 0,
+            value=metrics.sharpe_like,
+            threshold=0,
+            severity="error",
+            message="Sharpe-like 必须为正，负值不能作为生产研究策略。",
+        ),
+        BacktestValidationCheck(
+            key="drawdown_not_worse_than_benchmark",
+            label="最大回撤不差于基准",
+            passed=_not_worse_drawdown(metrics.max_drawdown, benchmark_drawdown),
+            value=metrics.max_drawdown,
+            threshold=benchmark_drawdown,
+            severity="warning",
+            message="若收益来自更深回撤，只能算研究候选，不能直接生产批准。",
+        ),
+        BacktestValidationCheck(
+            key="minimum_rebalances",
+            label="调仓样本达到生产门槛",
+            passed=rebalance_count >= PRODUCTION_MIN_REBALANCES,
+            value=rebalance_count,
+            threshold=PRODUCTION_MIN_REBALANCES,
+            severity="warning",
+            message="生产策略至少需要 36 次月度调仓，当前样本不足时只能算研究验证。",
+        ),
+        BacktestValidationCheck(
+            key="walk_forward_oos",
+            label="已通过样本外 walk-forward",
+            passed=has_oos_validation,
+            value="available" if has_oos_validation else "missing",
+            threshold="available",
+            severity="warning",
+            message="生产批准必须补充样本外验证，避免回测过拟合。",
+        ),
+    ]
+    hard_fail = any(not item.passed and item.severity == "error" for item in checks)
+    production_pass = all(item.passed for item in checks)
+    if production_pass:
+        status = "production_pass"
+        status_zh = "生产通过"
+        conclusion = "扣成本后跑赢主要基准，并满足生产样本和样本外验证门槛。"
+    elif hard_fail:
+        status = "fail"
+        status_zh = "验证失败"
+        conclusion = "核心收益或风险调整收益未过关，不能作为有效策略。"
+    else:
+        status = "research_pass"
+        status_zh = "研究通过，未生产批准"
+        conclusion = (
+            "扣成本后历史回测跑赢核心基准，但样本长度、回撤或样本外验证仍未满足生产门槛。"
+        )
+
+    return BacktestValidationSummary(
+        status=status,
+        status_zh=status_zh,
+        benchmark_symbol=benchmark,
+        benchmark_cumulative_return=benchmark_return,
+        universe_cumulative_return=universe_return,
+        excess_return_vs_benchmark=(
+            None
+            if metrics.cumulative_return is None or benchmark_return is None
+            else metrics.cumulative_return - benchmark_return
+        ),
+        excess_return_vs_universe=(
+            None
+            if metrics.cumulative_return is None or universe_return is None
+            else metrics.cumulative_return - universe_return
+        ),
+        checks=checks,
+        conclusion=conclusion,
+    )
+
+
 def _backtest_cache_key(
     start: date | None,
     end: date | None,
@@ -679,6 +818,359 @@ def _run_research_signal_backtest_uncached(
         benchmarks=benchmarks,
         holdings=snapshots,
         risk_summary=_risk_summary(snapshots),
+        validation=_validation_summary(
+            metrics=metrics,
+            benchmarks=benchmarks,
+            benchmark=benchmark,
+            rebalance_count=len(snapshots),
+        ),
+        data_notes=notes,
+    )
+
+
+def _rotation_core_cache_key(
+    start: date | None,
+    end: date | None,
+    top_n: int,
+    rebalance: str,
+    cost_bps: float,
+    benchmark: str,
+    min_liquidity_score: float,
+    min_risk_score: float,
+    risk_managed: bool,
+) -> tuple[object, ...]:
+    return (
+        "rotation_core_backtest",
+        start,
+        end,
+        top_n,
+        rebalance,
+        cost_bps,
+        benchmark,
+        min_liquidity_score,
+        min_risk_score,
+        risk_managed,
+        clean_data_fingerprint(["etf_daily.parquet", "etf_basic.parquet"]),
+    )
+
+
+def run_rotation_core_backtest(
+    start: date | None = None,
+    end: date | None = None,
+    top_n: int = DEFAULT_ROTATION_CORE_TOP_N,
+    rebalance: str = "monthly",
+    cost_bps: float = 5.0,
+    benchmark: str = "510300.SH",
+    min_liquidity_score: float = 0.0,
+    min_risk_score: float = 60.0,
+    risk_managed: bool = True,
+) -> BacktestResult:
+    cache_key = _rotation_core_cache_key(
+        start,
+        end,
+        top_n,
+        rebalance,
+        cost_bps,
+        benchmark,
+        min_liquidity_score,
+        min_risk_score,
+        risk_managed,
+    )
+    return _BACKTEST_CACHE.get_or_create(
+        cache_key,
+        lambda: _run_rotation_core_backtest_uncached(
+            start=start,
+            end=end,
+            top_n=top_n,
+            rebalance=rebalance,
+            cost_bps=cost_bps,
+            benchmark=benchmark,
+            min_liquidity_score=min_liquidity_score,
+            min_risk_score=min_risk_score,
+            risk_managed=risk_managed,
+        ),
+    )
+
+
+def _rotation_core_selections(
+    daily: pd.DataFrame,
+    trading_dates: list[date],
+    *,
+    start: date | None,
+    end: date | None,
+    top_n: int,
+    min_liquidity_score: float,
+    min_risk_score: float,
+) -> list[_RebalanceSelection]:
+    dates = pd.DataFrame({"date": trading_dates})
+    selections: list[_RebalanceSelection] = []
+    for signal_date in _month_end_signal_dates(dates):
+        if start is not None and signal_date < start:
+            continue
+        if end is not None and signal_date > end:
+            continue
+        rotation = build_rotation_report(
+            top_n=max(top_n, 1),
+            target_date=signal_date,
+            use_manual_inputs=False,
+        )
+        if rotation.date is None:
+            continue
+        effective_date = _next_trading_date(trading_dates, rotation.date)
+        if effective_date is None or (end is not None and effective_date > end):
+            continue
+        candidates = [
+            item
+            for item in rotation.pools.get("core_candidates", [])
+            if item.liquidity_score >= min_liquidity_score
+            and item.risk_score >= min_risk_score
+        ]
+        candidates = sorted(candidates, key=lambda item: (-item.total_score, item.symbol))[:top_n]
+        selections.append(
+            _RebalanceSelection(
+                rebalance_date=rotation.date,
+                effective_date=effective_date,
+                symbols=[item.symbol for item in candidates],
+                scores={item.symbol: item.total_score for item in candidates},
+            )
+        )
+    return selections
+
+
+def _run_rotation_core_backtest_uncached(
+    start: date | None = None,
+    end: date | None = None,
+    top_n: int = DEFAULT_ROTATION_CORE_TOP_N,
+    rebalance: str = "monthly",
+    cost_bps: float = 5.0,
+    benchmark: str = "510300.SH",
+    min_liquidity_score: float = 0.0,
+    min_risk_score: float = 60.0,
+    risk_managed: bool = True,
+) -> BacktestResult:
+    config = BacktestConfig(
+        strategy="rotation_core_risk_managed" if risk_managed else "rotation_core",
+        risk_managed=risk_managed,
+        start=start,
+        end=end,
+        top_n=top_n,
+        rebalance=rebalance,
+        cost_bps=cost_bps,
+        benchmark=benchmark,
+        pool="core_candidates",
+        min_liquidity_score=min_liquidity_score,
+        min_risk_score=min_risk_score,
+    )
+    notes = [
+        BacktestDataNote(message="回测结果仅用于历史研究和规则验证，不构成投资建议。"),
+        BacktestDataNote(
+            message=(
+                "轮动核心池策略只使用历史月末当时可见的行业/主题轮动雷达，"
+                "禁用人工 CSV 输入，并选择 core_candidates 等权配置。"
+            )
+        ),
+        BacktestDataNote(
+            message=(
+                "参数来源：1/3/6 月相对强弱和均线确认来自公开动量/趋势文献；"
+                "交易成本按单边 bp 扣减，生产版仍需补动态价差和冲击成本。"
+            )
+        ),
+    ]
+    if risk_managed:
+        notes.append(
+            BacktestDataNote(
+                message=(
+                    "风险管理版默认要求 risk_score >= 60，并使用市场状态、单只权重、"
+                    "主题集中度和高相关簇约束；无合格标的的调仓期转为现金。"
+                )
+            )
+        )
+    if rebalance != "monthly":
+        notes.append(
+            BacktestDataNote(
+                severity="warning",
+                message="第一版轮动核心池回测仅支持月度调仓，已按 monthly 处理。",
+            )
+        )
+
+    daily = _clean_daily()
+    if daily.empty:
+        notes.append(
+            BacktestDataNote(
+                severity="warning",
+                message="缺少 clean ETF 日线数据，无法运行轮动核心池回测。",
+            )
+        )
+        return BacktestResult(config=config, metrics=BacktestMetrics(), data_notes=notes)
+
+    prices = daily.pivot_table(
+        index="date",
+        columns="symbol",
+        values="close",
+        aggfunc="last",
+    ).sort_index()
+    returns = prices.pct_change(fill_method=None)
+    trading_dates = list(prices.index)
+    selections = _rotation_core_selections(
+        daily,
+        trading_dates,
+        start=start,
+        end=end,
+        top_n=top_n,
+        min_liquidity_score=min_liquidity_score,
+        min_risk_score=min_risk_score,
+    )
+    selections = [selection for selection in selections if selection.effective_date is not None]
+    if len(selections) < 2:
+        notes.append(
+            BacktestDataNote(
+                severity="warning",
+                message="可用轮动核心池调仓样本不足，暂不生成有效性结论。",
+            )
+        )
+        return BacktestResult(config=config, metrics=BacktestMetrics(), data_notes=notes)
+
+    strategy_returns = pd.Series(0.0, index=returns.index)
+    cost_rate = cost_bps / 10000
+    lookup = _basic_lookup()
+    snapshots: list[BacktestHoldingSnapshot] = []
+    old_weights: dict[str, float] = {}
+    turnovers: list[float] = []
+
+    for index, selection in enumerate(selections):
+        assert selection.effective_date is not None
+        next_effective = (
+            selections[index + 1].effective_date
+            if index + 1 < len(selections)
+            else None
+        )
+        period_mask = returns.index >= selection.effective_date
+        if next_effective is not None:
+            period_mask &= returns.index < next_effective
+        if end is not None:
+            period_mask &= returns.index <= end
+        regime = detect_market_regime(
+            daily,
+            selection.rebalance_date,
+            benchmark=benchmark,
+        )
+        if risk_managed:
+            themes = _themes_for_symbols(selection.symbols, lookup)
+            portfolio = build_risk_adjusted_portfolio(
+                selection.symbols,
+                selection.scores,
+                daily,
+                selection.rebalance_date,
+                themes,
+                regime,
+            )
+            weights = portfolio.weights
+        elif selection.symbols:
+            weight = 1 / len(selection.symbols)
+            weights = {symbol: weight for symbol in selection.symbols}
+            portfolio = RiskAdjustedPortfolio(
+                weights=weights,
+                cash_weight=0.0,
+                target_exposure=1.0,
+                realized_exposure=1.0,
+                notes=[
+                    "轮动核心池回测采用等权满仓，用于检验信号分层；实盘组合层另行施加风险约束。"
+                ],
+            )
+        else:
+            weights = {}
+            portfolio = RiskAdjustedPortfolio(
+                weights={},
+                cash_weight=1.0,
+                target_exposure=1.0,
+                realized_exposure=0.0,
+                notes=["本期无合格核心池标的，组合转为现金/低风险仓位。"],
+            )
+        selected_returns = returns.loc[period_mask, list(weights)]
+        selected_returns = selected_returns.dropna(axis=1, how="all")
+        period_returns = _weighted_period_returns(selected_returns, weights)
+        turnover, old_weights = _weight_turnover(old_weights, weights)
+        cost = turnover * cost_rate
+        if not period_returns.empty:
+            period_returns.iloc[0] = period_returns.iloc[0] - cost
+            strategy_returns.loc[period_returns.index] = period_returns
+        turnovers.append(turnover)
+        snapshot_selection = _RebalanceSelection(
+            rebalance_date=selection.rebalance_date,
+            effective_date=selection.effective_date,
+            symbols=selection.symbols,
+            scores=selection.scores,
+            regime=regime if risk_managed else None,
+        )
+        snapshots.append(_holding_snapshot(snapshot_selection, lookup, portfolio, turnover, cost))
+
+    first_effective = selections[0].effective_date
+    assert first_effective is not None
+    strategy_returns = strategy_returns[strategy_returns.index >= first_effective]
+    if end is not None:
+        strategy_returns = strategy_returns[strategy_returns.index <= end]
+    equity_curve, equity = _equity_points(strategy_returns)
+    average_turnover = float(pd.Series(turnovers).mean()) if turnovers else 0.0
+    metrics = _metrics_from_returns(strategy_returns, equity, average_turnover, len(snapshots))
+
+    benchmarks: list[BacktestBenchmark] = []
+    aligned_returns = returns.loc[strategy_returns.index]
+    if benchmark in aligned_returns.columns:
+        benchmarks.append(
+            _benchmark_from_returns(
+                key="symbol",
+                label=f"{benchmark} 基准",
+                symbol=benchmark,
+                returns=aligned_returns[benchmark].fillna(0.0),
+            )
+        )
+    else:
+        notes.append(
+            BacktestDataNote(
+                severity="warning",
+                message=f"本地数据缺少 {benchmark}，已跳过该基准。",
+            )
+        )
+    universe_returns = aligned_returns.mean(axis=1, skipna=True).fillna(0.0)
+    benchmarks.append(
+        _benchmark_from_returns(
+            key="universe_equal_weight",
+            label="ETF池等权基准",
+            returns=universe_returns,
+        )
+    )
+    notes.append(
+        BacktestDataNote(
+            message=(
+                "信号在调仓日收盘后读取，组合收益从下一交易日开始计算，"
+                f"单边成本 {cost_bps:g}bp。"
+            )
+        )
+    )
+    if len(snapshots) < PRODUCTION_MIN_REBALANCES:
+        notes.append(
+            BacktestDataNote(
+                severity="warning",
+                message=(
+                    f"当前仅 {len(snapshots)} 次月度调仓，低于生产门槛 "
+                    f"{PRODUCTION_MIN_REBALANCES} 次；结果只能作为研究候选。"
+                ),
+            )
+        )
+
+    return BacktestResult(
+        config=config,
+        metrics=metrics,
+        equity_curve=equity_curve,
+        benchmarks=benchmarks,
+        holdings=snapshots,
+        risk_summary=_risk_summary(snapshots),
+        validation=_validation_summary(
+            metrics=metrics,
+            benchmarks=benchmarks,
+            benchmark=benchmark,
+            rebalance_count=len(snapshots),
+        ),
         data_notes=notes,
     )
 

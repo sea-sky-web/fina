@@ -77,6 +77,8 @@ class DataSourceAudit(BaseModel):
     ok: bool
     status: str = Field(pattern="^(ok|warning|error)$")
     provider: str = "unknown"
+    authority_level: str = "unknown"
+    authority_notes: list[str] = Field(default_factory=list)
     manifest_status: str | None = None
     collected_at: datetime | None = None
     spot_source: str | None = None
@@ -84,6 +86,9 @@ class DataSourceAudit(BaseModel):
     basic_rows: int = 0
     daily_rows: int = 0
     latest_trade_date: dt_date | None = None
+    latest_expected_trade_date: dt_date | None = None
+    trading_days_lag: int | None = None
+    freshness_basis: str = "weekdays"
     symbols_total: int = 0
     symbols_with_daily: int = 0
     daily_missing_symbols: list[str] = Field(default_factory=list)
@@ -286,12 +291,17 @@ class ResearchSignal(BaseModel):
 
 
 class BacktestConfig(BaseModel):
+    strategy: str = "research_signal"
+    risk_managed: bool = False
     start: dt_date | None = None
     end: dt_date | None = None
     top_n: int = 10
     rebalance: str = "monthly"
     cost_bps: float = 5.0
     benchmark: str = "510300.SH"
+    pool: str | None = None
+    min_liquidity_score: float | None = None
+    min_risk_score: float | None = None
 
 
 class BacktestMetrics(BaseModel):
@@ -355,6 +365,28 @@ class BacktestRiskSummary(BaseModel):
     data_notes: list[str] = Field(default_factory=list)
 
 
+class BacktestValidationCheck(BaseModel):
+    key: str
+    label: str
+    passed: bool
+    value: float | int | str | None = None
+    threshold: float | int | str | None = None
+    severity: str = Field(default="warning", pattern="^(info|warning|error)$")
+    message: str = ""
+
+
+class BacktestValidationSummary(BaseModel):
+    status: str = Field(pattern="^(production_pass|research_pass|fail)$")
+    status_zh: str
+    benchmark_symbol: str | None = None
+    benchmark_cumulative_return: float | None = None
+    universe_cumulative_return: float | None = None
+    excess_return_vs_benchmark: float | None = None
+    excess_return_vs_universe: float | None = None
+    checks: list[BacktestValidationCheck] = Field(default_factory=list)
+    conclusion: str
+
+
 class BacktestResult(BaseModel):
     config: BacktestConfig
     metrics: BacktestMetrics
@@ -362,6 +394,7 @@ class BacktestResult(BaseModel):
     benchmarks: list[BacktestBenchmark] = Field(default_factory=list)
     holdings: list[BacktestHoldingSnapshot] = Field(default_factory=list)
     risk_summary: BacktestRiskSummary | None = None
+    validation: BacktestValidationSummary | None = None
     data_notes: list[BacktestDataNote] = Field(default_factory=list)
 
 

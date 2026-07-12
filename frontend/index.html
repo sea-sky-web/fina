@@ -589,6 +589,7 @@ function loadData() {
       renderCards(data.selected, data.config);
       renderFooter(data);
       showContent();
+      loadBacktest();
     })
     .catch(function(err) {
       console.error('Failed to load signal data:', err);
@@ -598,6 +599,107 @@ function loadData() {
       btn.disabled = false;
       btn.textContent = '刷新数据';
     });
+}
+
+function loadBacktest() {
+  fetch('/api/v58/backtest/v58')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) return;
+      renderEquityChart(data);
+    })
+    .catch(function() {});
+}
+
+function renderEquityChart(data) {
+  var container = document.getElementById('chart-section');
+  if (!container) {
+    container = document.createElement('section');
+    container.id = 'chart-section';
+    container.style.cssText = 'background:#16213e;border-radius:12px;padding:20px;margin-top:20px;';
+    document.querySelector('main').appendChild(container);
+  }
+
+  var eq = data.equity_curve;
+  if (!eq || eq.length === 0) return;
+
+  var W = 800, H = 300, PAD = 50;
+  var maxY = 0, minY = 999;
+  eq.forEach(function(p) {
+    var mx = Math.max(p.equity, p.benchmark);
+    var mn = Math.min(p.equity, p.benchmark);
+    if (mx > maxY) maxY = mx;
+    if (mn < minY) minY = mn;
+  });
+  minY = Math.floor(minY * 20) / 20;
+  maxY = Math.ceil(maxY * 20) / 20;
+  if (maxY === minY) maxY = minY + 0.1;
+
+  var summary = data.summary || {};
+  var html = '<h3 style="color:#e0e0e0;margin:0 0 12px 0;">📈 历史净值曲线 (' + data.version + ')</h3>';
+  html += '<div style="display:flex;gap:20px;margin-bottom:12px;flex-wrap:wrap;">';
+  html += '<span style="color:#00d4aa">年化 ' + ((summary.annualized_return||0)*100).toFixed(1) + '%</span>';
+  html += '<span style="color:#e0e0e0">Sharpe ' + (summary.sharpe||0).toFixed(3) + '</span>';
+  html += '<span style="color:#ff6b6b">回撤 ' + ((summary.max_drawdown||0)*100).toFixed(1) + '%</span>';
+  html += '<span style="color:#e0e0e0">胜率 ' + ((summary.win_rate||0)*100).toFixed(0) + '%</span>';
+  html += '</div>';
+  html += '<canvas id="equity-canvas" width="' + W + '" height="' + H + '" style="width:100%;max-width:' + W + 'px;height:auto;"></canvas>';
+  html += '<div style="margin-top:8px;font-size:12px;color:#888;">';
+  html += '<span style="color:#00d4aa">━━ 策略</span> &nbsp; <span style="color:#ffa726">━━ 沪深300</span> &nbsp; ';
+  html += '共 ' + eq.length + ' 个窗口 (' + eq[0].date + ' ~ ' + eq[eq.length-1].date + ')';
+  html += '</div>';
+  container.innerHTML = html;
+
+  var canvas = document.getElementById('equity-canvas');
+  var ctx = canvas.getContext('2d');
+  var dpr = window.devicePixelRatio || 1;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  ctx.scale(dpr, dpr);
+
+  ctx.fillStyle = '#0f1629';
+  ctx.fillRect(0, 0, W, H);
+
+  function xPos(i) { return PAD + (W - PAD * 2) * i / (eq.length - 1); }
+  function yPos(v) { return H - PAD - (H - PAD * 2) * (v - minY) / (maxY - minY); }
+
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 0.5;
+  for (var g = 0; g <= 4; g++) {
+    var gv = minY + (maxY - minY) * g / 4;
+    var gy = yPos(gv);
+    ctx.beginPath(); ctx.moveTo(PAD, gy); ctx.lineTo(W - PAD, gy); ctx.stroke();
+    ctx.fillStyle = '#888'; ctx.font = '11px system-ui';
+    ctx.fillText((gv * 100 - 100).toFixed(0) + '%', 5, gy + 4);
+  }
+
+  for (var li = 0; li < eq.length; li += Math.max(1, Math.floor(eq.length / 6))) {
+    var lx = xPos(li);
+    ctx.fillStyle = '#666'; ctx.font = '10px system-ui';
+    ctx.save(); ctx.translate(lx, H - 5); ctx.rotate(-0.5);
+    ctx.fillText(eq[li].date.substring(2, 7), 0, 0);
+    ctx.restore();
+  }
+
+  function drawLine(key, color) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    eq.forEach(function(p, i) {
+      var x = xPos(i), y = yPos(p[key]);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  drawLine('benchmark', '#ffa726');
+  drawLine('equity', '#00d4aa');
+
+  var lastEq = eq[eq.length - 1];
+  ctx.fillStyle = '#00d4aa'; ctx.font = 'bold 12px system-ui';
+  ctx.fillText(((lastEq.equity - 1) * 100).toFixed(1) + '%', xPos(eq.length - 1) + 4, yPos(lastEq.equity));
+  ctx.fillStyle = '#ffa726';
+  ctx.fillText(((lastEq.benchmark - 1) * 100).toFixed(1) + '%', xPos(eq.length - 1) + 4, yPos(lastEq.benchmark));
 }
 
 // Initial load

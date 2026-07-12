@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>V58 行业轮动仪表盘</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px 16px;
+}
+
+h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 20px;
+  text-align: center;
+  color: #ffffff;
+  letter-spacing: 1px;
+}
+
+/* ── Status Bar ── */
+.status-bar {
+  background: #16213e;
+  border-radius: 10px;
+  padding: 16px 24px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 32px;
+  align-items: center;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+}
+
+.status-label {
+  color: #8899aa;
+}
+
+.status-value {
+  font-weight: 600;
+}
+
+.regime-bull { color: #00d4aa; }
+.regime-bear { color: #ff6b6b; }
+.regime-reduce { color: #ffa726; }
+
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.badge-green {
+  background: rgba(0, 212, 170, 0.15);
+  color: #00d4aa;
+  border: 1px solid rgba(0, 212, 170, 0.3);
+}
+
+.badge-red {
+  background: rgba(255, 107, 107, 0.15);
+  color: #ff6b6b;
+  border: 1px solid rgba(255, 107, 107, 0.3);
+}
+
+.badge-orange {
+  background: rgba(255, 167, 38, 0.15);
+  color: #ffa726;
+  border: 1px solid rgba(255, 167, 38, 0.3);
+}
+
+/* ── Table ── */
+.panel {
+  background: #16213e;
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 20px;
+  overflow-x: auto;
+}
+
+.panel-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 14px;
+  color: #ffffff;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+thead th {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 2px solid #2a3a5e;
+  color: #8899aa;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  white-space: nowrap;
+}
+
+tbody tr:hover {
+  background: rgba(255,255,255,0.03);
+}
+
+tbody tr.row-selected {
+  border-left: 3px solid #00d4aa;
+  background: rgba(0, 212, 170, 0.05);
+}
+
+tbody tr.row-stopped {
+  color: #556677;
+}
+
+.score-pos { color: #00d4aa; }
+.score-neg { color: #ff6b6b; }
+
+/* ── Cards ── */
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.action-card {
+  background: #1a1a2e;
+  border: 1px solid #2a3a5e;
+  border-radius: 10px;
+  padding: 18px;
+  transition: border-color 0.2s;
+}
+
+.action-card:hover {
+  border-color: #00d4aa;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.card-name {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.card-symbol {
+  font-size: 0.82rem;
+  color: #8899aa;
+  margin-top: 2px;
+}
+
+.card-weight {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #00d4aa;
+}
+
+.card-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.card-detail-row {
+  display: flex;
+  justify-content: space-between;
+}
+
+.card-detail-label {
+  color: #8899aa;
+}
+
+.card-action-buy {
+  color: #00d4aa;
+  font-weight: 600;
+}
+
+.card-action-hold {
+  color: #ffa726;
+  font-weight: 600;
+}
+
+.card-stoploss {
+  color: #ff6b6b;
+  font-size: 0.82rem;
+}
+
+/* ── Footer ── */
+.footer {
+  background: #16213e;
+  border-radius: 10px;
+  padding: 16px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.85rem;
+  color: #8899aa;
+}
+
+.footer-strategy {
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.btn-refresh {
+  background: rgba(0, 212, 170, 0.15);
+  color: #00d4aa;
+  border: 1px solid rgba(0, 212, 170, 0.3);
+  padding: 8px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: background 0.2s;
+}
+
+.btn-refresh:hover {
+  background: rgba(0, 212, 170, 0.25);
+}
+
+.btn-refresh:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Error ── */
+.error-box {
+  background: rgba(255, 107, 107, 0.1);
+  border: 1px solid rgba(255, 107, 107, 0.3);
+  border-radius: 10px;
+  padding: 24px;
+  text-align: center;
+  color: #ff6b6b;
+  margin-bottom: 20px;
+  display: none;
+}
+
+/* ── Loading ── */
+.loading-box {
+  text-align: center;
+  padding: 60px 20px;
+  color: #8899aa;
+  font-size: 1rem;
+}
+
+.loading-spinner {
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(0, 212, 170, 0.2);
+  border-top-color: #00d4aa;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 12px;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .status-bar {
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 16px;
+  }
+  .footer {
+    flex-direction: column;
+    text-align: center;
+  }
+  .cards-grid {
+    grid-template-columns: 1fr;
+  }
+  thead th, tbody td {
+    padding: 8px 8px;
+    font-size: 0.82rem;
+  }
+  h1 { font-size: 1.2rem; }
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>V58 行业轮动仪表盘</h1>
+
+  <!-- Error -->
+  <div class="error-box" id="errorBox">
+    <div style="font-size:1.5rem; margin-bottom:8px;">&#9888;</div>
+    <div id="errorMsg">数据加载失败</div>
+  </div>
+
+  <!-- Loading -->
+  <div class="loading-box" id="loadingBox">
+    <div class="loading-spinner"></div>
+    <div>正在加载数据...</div>
+  </div>
+
+  <!-- Content (hidden until data loads) -->
+  <div id="content" style="display:none;">
+
+    <!-- 1. Status Bar -->
+    <div class="status-bar" id="statusBar">
+      <div class="status-item">
+        <span class="status-label">信号日期</span>
+        <span class="status-value" id="signalDate">—</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">因子趋势</span>
+        <span class="status-value" id="factorRegime">—</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">仓位策略</span>
+        <span class="status-value" id="positionRegime">—</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">总敞口</span>
+        <span class="status-value" id="totalExposure">—</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">现金</span>
+        <span class="status-value" id="cashWeight">—</span>
+      </div>
+    </div>
+
+    <!-- 2. Signal Ranking Table -->
+    <div class="panel">
+      <div class="panel-title">信号排名表</div>
+      <table>
+        <thead>
+          <tr>
+            <th>排名</th>
+            <th>代码</th>
+            <th>名称</th>
+            <th>主题</th>
+            <th>动量Z</th>
+            <th>相对强度</th>
+            <th>量价</th>
+            <th>评分</th>
+            <th>目标仓位</th>
+          </tr>
+        </thead>
+        <tbody id="signalTableBody">
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 3. Portfolio Action Cards -->
+    <div class="panel">
+      <div class="panel-title">持仓操作卡</div>
+      <div class="cards-grid" id="cardsGrid">
+      </div>
+      <div id="noCards" style="display:none; text-align:center; color:#8899aa; padding:20px;">
+        当前无持仓信号
+      </div>
+    </div>
+
+    <!-- 4. Footer -->
+    <div class="footer">
+      <div class="footer-strategy" id="strategyDesc">V58 行业轮动策略 | K=3 | 止损-5% | 近5窗口年化+53.5%</div>
+      <div id="lastRefresh">最后刷新: —</div>
+      <button class="btn-refresh" id="btnRefresh" onclick="loadData()">刷新数据</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function fmtPct(v) {
+  if (v == null || isNaN(v)) return '—';
+  return (v * 100).toFixed(1) + '%';
+}
+
+function fmtScore(v) {
+  if (v == null || isNaN(v)) return '—';
+  return v.toFixed(3);
+}
+
+function scoreClass(v) {
+  if (v == null || isNaN(v)) return '';
+  return v >= 0 ? 'score-pos' : 'score-neg';
+}
+
+function fmtTime() {
+  var d = new Date();
+  var hh = String(d.getHours()).padStart(2, '0');
+  var mm = String(d.getMinutes()).padStart(2, '0');
+  var ss = String(d.getSeconds()).padStart(2, '0');
+  return d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0') + ' ' +
+    hh + ':' + mm + ':' + ss;
+}
+
+function renderStatusBar(data) {
+  var ps = data.portfolio_state;
+
+  document.getElementById('signalDate').textContent = data.signal_date;
+
+  // Factor regime
+  var frEl = document.getElementById('factorRegime');
+  if (ps.factor_regime === 'bull') {
+    frEl.innerHTML = '<span class="badge badge-green">🐂 牛市 (MA20&gt;MA60)</span>';
+  } else {
+    frEl.innerHTML = '<span class="badge badge-red">🐻 熊市 (MA20&lt;MA60)</span>';
+  }
+
+  // Position regime
+  var prEl = document.getElementById('positionRegime');
+  if (ps.position_regime === 'bull') {
+    prEl.innerHTML = '<span class="badge badge-green">加仓 ×1.50</span>';
+  } else {
+    prEl.innerHTML = '<span class="badge badge-orange">减仓 ×0.50</span>';
+  }
+
+  document.getElementById('totalExposure').textContent = fmtPct(ps.total_exposure);
+  document.getElementById('cashWeight').textContent = fmtPct(ps.cash_weight);
+}
+
+function renderTable(signals) {
+  var tbody = document.getElementById('signalTableBody');
+  tbody.innerHTML = '';
+
+  signals.forEach(function(s) {
+    var tr = document.createElement('tr');
+
+    // Row class
+    if (s.stop_loss_active || s.cooldown_until) {
+      tr.className = 'row-stopped';
+    } else if (s.selected) {
+      tr.className = 'row-selected';
+    }
+
+    var statusSuffix = '';
+    if (s.stop_loss_active) statusSuffix = ' [止损]';
+    else if (s.cooldown_until) statusSuffix = ' [冷却]';
+
+    tr.innerHTML =
+      '<td>' + s.rank + '</td>' +
+      '<td>' + escHtml(s.symbol) + '</td>' +
+      '<td>' + escHtml(s.name) + statusSuffix + '</td>' +
+      '<td>' + escHtml(s.theme) + '</td>' +
+      '<td class="' + scoreClass(s.momentum_z) + '">' + fmtScore(s.momentum_z) + '</td>' +
+      '<td>' + fmtPct(s.relative_strength_pct) + '</td>' +
+      '<td class="' + scoreClass(s.volume_price_bonus) + '">' + fmtScore(s.volume_price_bonus) + '</td>' +
+      '<td class="' + scoreClass(s.final_score) + '">' + fmtScore(s.final_score) + '</td>' +
+      '<td>' + fmtPct(s.target_weight) + '</td>';
+
+    tbody.appendChild(tr);
+  });
+}
+
+function renderCards(selected, config) {
+  var grid = document.getElementById('cardsGrid');
+  var noCards = document.getElementById('noCards');
+  grid.innerHTML = '';
+
+  if (!selected || selected.length === 0) {
+    grid.style.display = 'none';
+    noCards.style.display = 'block';
+    return;
+  }
+
+  grid.style.display = '';
+  noCards.style.display = 'none';
+
+  var stopPct = config ? config.stop_loss_threshold : -0.05;
+
+  selected.forEach(function(s) {
+    var card = document.createElement('div');
+    card.className = 'action-card';
+
+    var action = '买入';
+    var actionClass = 'card-action-buy';
+    // Simple heuristic: if weight > 0, it's a buy/hold suggestion
+    if (s.target_weight > 0) {
+      action = '买入/持有';
+      actionClass = 'card-action-hold';
+    }
+
+    card.innerHTML =
+      '<div class="card-header">' +
+        '<div>' +
+          '<div class="card-name">' + escHtml(s.name) + '</div>' +
+          '<div class="card-symbol">' + escHtml(s.symbol) + '</div>' +
+        '</div>' +
+        '<div class="card-weight">' + fmtPct(s.target_weight) + '</div>' +
+      '</div>' +
+      '<div class="card-details">' +
+        '<div class="card-detail-row">' +
+          '<span class="card-detail-label">操作建议</span>' +
+          '<span class="' + actionClass + '">' + action + '</span>' +
+        '</div>' +
+        '<div class="card-detail-row">' +
+          '<span class="card-detail-label">综合评分</span>' +
+          '<span class="' + scoreClass(s.final_score) + '">' + fmtScore(s.final_score) + '</span>' +
+        '</div>' +
+        '<div class="card-detail-row">' +
+          '<span class="card-detail-label">动量Z</span>' +
+          '<span class="' + scoreClass(s.momentum_z) + '">' + fmtScore(s.momentum_z) + '</span>' +
+        '</div>' +
+        '<div class="card-detail-row">' +
+          '<span class="card-detail-label">止损线</span>' +
+          '<span class="card-stoploss">' + fmtPct(stopPct) + ' (入场价)</span>' +
+        '</div>' +
+      '</div>';
+
+    grid.appendChild(card);
+  });
+}
+
+function renderFooter(data) {
+  var cfg = data.config;
+  var desc = 'V58 行业轮动策略 | K=' + cfg.k +
+    ' | 止损' + (cfg.stop_loss_threshold * 100).toFixed(0) + '% | 近5窗口年化+53.5%';
+  document.getElementById('strategyDesc').textContent = desc;
+  document.getElementById('lastRefresh').textContent = '最后刷新: ' + fmtTime();
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function showError(msg) {
+  document.getElementById('loadingBox').style.display = 'none';
+  document.getElementById('content').style.display = 'none';
+  var errBox = document.getElementById('errorBox');
+  document.getElementById('errorMsg').textContent = msg || '数据加载失败';
+  errBox.style.display = 'block';
+}
+
+function showContent() {
+  document.getElementById('loadingBox').style.display = 'none';
+  document.getElementById('errorBox').style.display = 'none';
+  document.getElementById('content').style.display = 'block';
+}
+
+function loadData() {
+  var btn = document.getElementById('btnRefresh');
+  btn.disabled = true;
+  btn.textContent = '加载中...';
+
+  // Show loading on initial load, not on refresh
+  if (document.getElementById('content').style.display === 'none') {
+    document.getElementById('loadingBox').style.display = 'block';
+  }
+  document.getElementById('errorBox').style.display = 'none';
+
+  fetch('/api/v58/signal')
+    .then(function(resp) {
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      return resp.json();
+    })
+    .then(function(data) {
+      renderStatusBar(data);
+      renderTable(data.signals);
+      renderCards(data.selected, data.config);
+      renderFooter(data);
+      showContent();
+    })
+    .catch(function(err) {
+      console.error('Failed to load signal data:', err);
+      showError('数据加载失败: ' + err.message);
+    })
+    .finally(function() {
+      btn.disabled = false;
+      btn.textContent = '刷新数据';
+    });
+}
+
+// Initial load
+loadData();
+</script>
+
+</body>
+</html>

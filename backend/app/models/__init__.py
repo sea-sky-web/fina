@@ -35,6 +35,10 @@ from app.models.etf import (
     SignalExplanation,
     SignalPerformanceModel,
     SignalSnapshotResult,
+    V58Config,
+    V58PortfolioState,
+    V58SignalReport,
+    V58SymbolSignal,
 )
 from app.models.evaluation import (
     FactorClusterGroup,
@@ -94,6 +98,10 @@ __all__ = [
     "SignalExplanation",
     "SignalPerformanceModel",
     "SignalSnapshotResult",
+    "V58Config",
+    "V58PortfolioState",
+    "V58SignalReport",
+    "V58SymbolSignal",
     "FactorClusterGroup",
     "FactorCorrelationMatrix",
     "FactorEvaluationReport",

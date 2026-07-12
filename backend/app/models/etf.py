@@ -431,3 +431,51 @@ class MonitoringReport(BaseModel):
     checks: list[MonitoringCheck] = Field(default_factory=list)
     alerts: list[str] = Field(default_factory=list)
     data_notes: list[str] = Field(default_factory=list)
+
+
+class V58Config(BaseModel):
+    k: int = 3
+    stop_loss_threshold: float = -0.05
+    cooldown_days: int = 5
+    bull_boost: float = 1.50
+    bear_scale: float = 0.50
+    hysteresis_buffer: int = 3
+    volume_threshold: float = 1.15
+    max_symbol_weight: float = 0.25
+    momentum_lookbacks: list[int] = Field(default_factory=lambda: [10, 20])
+    rel_strength_lookback: int = 60
+
+
+class V58SymbolSignal(BaseModel):
+    symbol: str
+    name: str
+    theme: str = ""
+    momentum_z: float = 0.0
+    relative_strength_pct: float = 0.0
+    volume_price_bonus: float = 0.0
+    raw_score: float = 0.0
+    final_score: float = 0.0
+    rank: int = 0
+    selected: bool = False
+    target_weight: float = 0.0
+    stop_loss_active: bool = False
+    cooldown_until: dt_date | None = None
+
+
+class V58PortfolioState(BaseModel):
+    signal_date: dt_date
+    factor_regime: str = "bull"
+    position_regime: str = "bull"
+    position_scale: float = 1.0
+    total_exposure: float = 0.0
+    cash_weight: float = 1.0
+    n_holdings: int = 0
+
+
+class V58SignalReport(BaseModel):
+    signal_date: dt_date
+    config: V58Config = Field(default_factory=V58Config)
+    portfolio_state: V58PortfolioState
+    signals: list[V58SymbolSignal] = Field(default_factory=list)
+    selected: list[V58SymbolSignal] = Field(default_factory=list)
+    data_notes: list[str] = Field(default_factory=list)

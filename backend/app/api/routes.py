@@ -12,6 +12,7 @@ from app.api.v1 import (
     rotation,
     signals,
     status,
+    v58,
 )
 
 router = APIRouter()
@@ -26,3 +27,4 @@ router.include_router(monitoring.router, prefix="/monitoring", tags=["monitoring
 router.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])
 router.include_router(rotation.router, prefix="/rotation", tags=["rotation"])
 router.include_router(refresh.router, tags=["refresh"])
+router.include_router(v58.router, prefix="/v58", tags=["v58"])

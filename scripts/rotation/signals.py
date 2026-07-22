@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .config import StrategyConfig, DEFAULT_CONFIG
+from .config import ClassConfig, StrategyConfig, DEFAULT_CONFIG
 
 
 def vectorized_zscore(frame: pd.DataFrame) -> pd.DataFrame:
@@ -23,18 +23,54 @@ def compute_scores(
     amount: pd.DataFrame,
     config: StrategyConfig = DEFAULT_CONFIG,
 ) -> pd.DataFrame:
+    """原始单类评分 — 完全向后兼容."""
+    return _score_core(
+        close, symbols, amount,
+        benchmark=config.benchmark,
+        momentum_lookback_set=config.momentum_lookback_set,
+        rel_strength_lookback=config.rel_strength_lookback,
+    )
+
+
+def compute_class_scores(
+    close: pd.DataFrame,
+    symbols: list[str],
+    amount: pd.DataFrame,
+    class_config: ClassConfig,
+) -> pd.DataFrame:
+    """多资产模式下的类内评分 — 使用各类自己的基准和参数."""
+    return _score_core(
+        close, symbols, amount,
+        benchmark=class_config.benchmark,
+        momentum_lookback_set=class_config.momentum_lookback_set,
+        rel_strength_lookback=class_config.rel_strength_lookback,
+    )
+
+
+def _score_core(
+    close: pd.DataFrame,
+    symbols: list[str],
+    amount: pd.DataFrame,
+    *,
+    benchmark: str,
+    momentum_lookback_set: list[int],
+    rel_strength_lookback: int,
+) -> pd.DataFrame:
+    if not symbols:
+        return pd.DataFrame(index=close.index)
+
     mom_components = []
-    for L in config.momentum_lookback_set:
+    for L in momentum_lookback_set:
         ret = close[symbols].pct_change(L)
         mom_components.append(vectorized_zscore(ret))
     mom_z = sum(mom_components) / len(mom_components)
 
-    bench_ret_long = close[config.benchmark].pct_change(config.rel_strength_lookback)
-    ret_long = close[symbols].pct_change(config.rel_strength_lookback)
+    bench_ret_long = close[benchmark].pct_change(rel_strength_lookback)
+    ret_long = close[symbols].pct_change(rel_strength_lookback)
     excess_long = ret_long.sub(bench_ret_long, axis=0)
     rel_rank = vectorized_pct_rank(excess_long)
 
-    bench = close[config.benchmark]
+    bench = close[benchmark]
     ma20 = bench.rolling(20).mean()
     ma60 = bench.rolling(60).mean()
     bear_mask = (ma20 < ma60).reindex(close.index).fillna(False)

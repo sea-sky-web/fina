@@ -150,5 +150,8 @@ if __name__ == "__main__":
     import sys
     if "--multi" in sys.argv:
         main_multi()
+    elif "--validate" in sys.argv:
+        from .cross_validate import run_triple_validation
+        run_triple_validation()
     else:
         main()

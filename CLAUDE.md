@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Fina is a China-listed ETF research dashboard. It collects ETF spot/daily data from AKShare, stores it as normalized Parquet files, and serves it via FastAPI to a React frontend. The goal is a research tool — not a trading system, not investment advice.
+Fina is a China-listed ETF research dashboard. It collects ETF spot/daily data from AKShare, stores it as normalized Parquet files, and serves rotation radar results via FastAPI. The daily research report is delivered as a GitHub Issue via GitHub Actions. The goal is a research tool — not a trading system, not investment advice.
 
 ## Commands
 
@@ -30,21 +30,43 @@ PYTHONPATH=backend python -m app.jobs.collect_top_etfs --limit 100 --lookback-da
 PYTHONPATH=backend python -m app.jobs.rebuild_factors --lookback-days 60
 ```
 
-### Frontend (from repo root)
+### Frontend
+
+`frontend/index.html` is a single-file V58 strategy dashboard (vanilla JS, no framework).
+
+### Rotation Backtest (`scripts/rotation/`)
+
+The standalone ETF rotation backtest strategy, modularized as a Python package:
 
 ```bash
-cd frontend && npm install
-npm run dev       # starts on :5173, proxies /api to :8000
-npm run build     # tsc -b && vite build
-npm run lint      # eslint
+# Run full walk-forward backtest
+cd /path/to/fina && PYTHONPATH=scripts /path/to/venv/python -m rotation
+
+# Or via wrapper
+PYTHONPATH=scripts /path/to/venv/python scripts/rotation_backtest.py
 ```
+
+Package structure:
+
+| Module | Role |
+|--------|------|
+| `config.py` | `StrategyConfig` dataclass with all parameters, path constants |
+| `data.py` | Load parquet, liquidity filter, common history alignment |
+| `signals.py` | Dual-period momentum z-score, relative strength, volume-price confirmation |
+| `engine.py` | Simulation loop: stop-loss, drawdown circuit breaker, re-entry, bear/bull scaling |
+| `metrics.py` | Annualized return, max drawdown, Sharpe, Calmar (pure functions) |
+| `walkforward.py` | Expanding-window walk-forward with grid search |
+| `report.py` | Cost erosion test, 8-item judge checklist report |
+| `__main__.py` | Entry point |
+
+Data pipeline: `build_backtest_data.py` → `data/research/etf_daily_backtest.parquet` → `rotation/` package → `artifacts/backtest_v64/`
 
 ## Architecture
 
 ### Data flow
 
 ```
-AKShare → collectors → raw/ parquet → normalizers → clean/ parquet → services → API routes → React
+AKShare → collectors → raw/ parquet → normalizers → clean/ parquet → services → API routes → frontend (single HTML)
                                                                           ↑
                                                                    DuckDB (query layer, not source of truth)
 ```
@@ -58,7 +80,7 @@ Refreshes use **atomic replace**: write new data to a temp dir, then `os.replace
 | Config | `app/core/` | Settings from env vars (`FINA_` prefix), project root detection |
 | Collectors | `app/collectors/` | Provider-specific fetching. Must NOT be called from API routes directly. |
 | Normalizers | `app/normalizers/` | Transform raw provider DataFrames into the clean data contract (see `docs/DATA_CONTRACT.md`) |
-| Storage | `app/storage/` | Parquet read/write + DuckDB convenience queries |
+| Storage | `app/storage/` | Parquet read/write helpers |
 | Services | `app/services/` | Domain logic used by API routes |
 | API | `app/api/` | Thin route definitions, delegates to services |
 | Jobs | `app/jobs/` | CLI-entry scripts for data collection and factor rebuild |
@@ -74,17 +96,9 @@ Refreshes use **atomic replace**: write new data to a temp dir, then `os.replace
 - `POST /api/factors/rebuild?lookback_days=` — rebuild factors
 - `POST /api/refresh/top-etfs?limit=&lookback_days=` — trigger full data collection
 
-### Frontend component tree
+### Frontend
 
-```
-App
-├── StatusPanel (data freshness cards + refresh button)
-├── EtfTable (filterable ETF list with theme tabs)
-├── PriceChart (SVG candlestick + volume chart for selected ETF)
-└── FactorPanel (factor score rankings table)
-```
-
-Theme filtering applies to both the ETF table and FactorPanel in sync. Selecting an ETF updates the price chart.
+`frontend/index.html` — single-file V58 dashboard: signal ranking table, portfolio action cards, equity curve comparison (V58 vs V48 vs CSI300). Vanilla JS, data from `/api/v58/signal`.
 
 ### Key design decisions
 
@@ -96,6 +110,6 @@ Theme filtering applies to both the ETF table and FactorPanel in sync. Selecting
 - **Sample/fallback data**: `etf_service.py` returns hardcoded sample data when Parquet files are empty, so the frontend always renders something.
 - **Pre-commit safety**: data files under `data/` are gitignored. Never commit real market data.
 
-### Factor system (current state)
+### Factor system
 
-Currently only `momentum_60d` is implemented, hardcoded in `factor_service.py`. The factor is: `close_today / close_60_days_ago - 1`, computed per symbol, then cross-sectionally ranked and percentiled per date. The `FactorPanel` frontend is also hardcoded to this single factor. See `docs/GOALS_AND_TASKS.md` P3 for the full factor roadmap (volatility, turnover, liquidity stability, drawdown, risk-adjusted return).
+13 factors implemented in `app/factors/`, registered in `app/factors/registry.py`: momentum, volatility, drawdown, RSI, turnover, turnover concentration, liquidity stability, trend strength, risk-adjusted return, reversal, momentum exhaustion, deviation rate, EPS revision. Processing pipeline: MAD outlier removal → z-score standardization → theme neutralization (`app/factors/processing/`).

@@ -20,17 +20,21 @@ dist/
 
 # Local tool settings
 .claude/settings.local.json
+.claude/plans/
 
 # Data
 artifacts/
 data/raw/
 data/clean/
+data/research/
+data/portfolio/
 data/qlib/
 *.duckdb
 *.db
 
 # System
 .DS_Store
+.remember/
 
 # Logs
 *.log

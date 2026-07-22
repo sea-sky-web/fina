@@ -159,6 +159,27 @@ def normalize_etf_daily(frame: pd.DataFrame, symbol: str) -> pd.DataFrame:
     data["provider"] = "akshare"
     data["updated_at"] = now
 
+    # 数据质量校验：源一致性
+    if "source_endpoint" in data.columns:
+        endpoints = data["source_endpoint"].dropna().unique()
+        if len(endpoints) > 1:
+            raise ValueError(
+                f"ETF {symbol}: mixed source endpoints {list(endpoints)}. "
+                f"This will corrupt price continuity."
+            )
+
+    # 数据质量校验：单日涨跌幅上限（A股ETF涨跌停10-20%，留2%容差）
+    MAX_DAILY_RETURN = 0.22
+    if len(data) > 1:
+        daily_ret = (data["close"] / data["pre_close"] - 1).iloc[1:]
+        n_bad = int((daily_ret.abs() > MAX_DAILY_RETURN).sum())
+        if n_bad > 0:
+            bad_dates = data.loc[daily_ret[daily_ret.abs() > MAX_DAILY_RETURN].index, "date"].tolist()
+            raise ValueError(
+                f"ETF {symbol}: {n_bad} daily returns exceed +/-{MAX_DAILY_RETURN:.0%}. "
+                f"Dates: {bad_dates[:5]}. Likely mixed price adjustment sources."
+            )
+
     columns = [
         "symbol",
         "date",

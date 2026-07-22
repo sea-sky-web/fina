@@ -41,7 +41,7 @@ reuse the cached bars and mark the run as degraded.
 
 - `app/core`: configuration and shared infrastructure
 - `app/collectors`: provider-specific data collection
-- `app/storage`: parquet and DuckDB persistence
+- `app/storage`: parquet persistence
 - `app/services`: domain logic used by API routes and jobs
 - `app/api`: HTTP routes and response schemas
 - `app/jobs`: scheduled or manual CLI entry points
@@ -142,3 +142,30 @@ config/etf_rotation_inputs.csv
 ### Query
 
 DuckDB views/tables are a convenience query layer, not the source of truth.
+
+## Rotation Backtest Strategy (`scripts/rotation/`)
+
+Standalone walk-forward backtest for the ETF rotation strategy, independent of the
+backend application. Does not import from `app.*`.
+
+```text
+data/clean/etf_daily.parquet
+  -> scripts/build_backtest_data.py (filter, validate)
+  -> data/research/etf_daily_backtest.parquet
+  -> scripts/rotation/ package (walk-forward backtest)
+  -> artifacts/backtest_v64/ (report.json, windows.csv)
+```
+
+The package is modularized into 9 files:
+
+- `config.py`: `StrategyConfig` dataclass — all strategy parameters in one place
+- `data.py`: data loading, liquidity filter, common history alignment
+- `signals.py`: dual-period momentum z-score, relative strength, volume-price bonus
+- `engine.py`: daily simulation loop (stop-loss, drawdown breaker, re-entry, scaling)
+- `metrics.py`: pure performance metric functions (reusable by any strategy)
+- `walkforward.py`: expanding-window walk-forward with grid search over K
+- `report.py`: cost erosion analysis and 8-item judge checklist
+- `__main__.py`: entry point
+
+Strategy variations are achieved by passing different `StrategyConfig` instances,
+not by creating new script files. Version history is tracked via git.

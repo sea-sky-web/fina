@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 from app.collectors.akshare_collector import AkshareEtfCollector
-from app.core.config import settings
+from app.core.config import PROJECT_ROOT, settings
 from app.normalizers.akshare import normalize_etf_daily, normalize_etf_spot
 from app.storage.parquet_store import read_parquet, write_parquet
 
@@ -156,7 +156,22 @@ def collect_top_etfs(limit: int = 200, lookback_days: int = 2520) -> dict[str, o
     daily_failures: list[dict[str, str]] = []
     daily_source_endpoints: set[str] = set()
 
-    for symbol in etf_basic["symbol"].tolist():
+    # 确保策略宇宙标的被纳入采集（即使不在成交额 top-N 中）
+    strategy_universe_path = PROJECT_ROOT / "config" / "v58_universe.csv"
+    all_symbols = set(etf_basic["symbol"].tolist())
+    supplemented: list[str] = []
+    if strategy_universe_path.exists():
+        import csv as csv_mod
+        with open(strategy_universe_path, encoding="utf-8") as f:
+            for row in csv_mod.DictReader(f):
+                sym = row["symbol"]
+                if sym not in all_symbols:
+                    all_symbols.add(sym)
+                    supplemented.append(sym)
+        if supplemented:
+            print(f"[collect] supplemented {len(supplemented)} strategy-universe symbols: {supplemented}")
+
+    for symbol in sorted(all_symbols):
         try:
             raw_daily = _cached_raw_daily_bars(symbol=symbol, date_key=date_key)
             if raw_daily.empty:
@@ -227,6 +242,10 @@ def collect_top_etfs(limit: int = 200, lookback_days: int = 2520) -> dict[str, o
         "daily_rows": int(len(etf_daily)),
         "daily_source_endpoints": sorted(daily_source_endpoints),
         "daily_missing_symbols": [item["symbol"] for item in daily_failures],
+        "source_mixing_warning": (
+            f"MIXED SOURCES: {sorted(daily_source_endpoints)}. "
+            "Do not use for backtesting without reconciliation."
+        ) if len(daily_source_endpoints) > 1 else None,
         "failures": failures,
     }
     _write_manifest(manifest)

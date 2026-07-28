@@ -58,6 +58,10 @@ def _replace_clean_outputs(tmp_basic: Path, tmp_daily: Path) -> None:
     settings.clean_dir.mkdir(parents=True, exist_ok=True)
     os.replace(tmp_basic, settings.clean_dir / "etf_basic.parquet")
     os.replace(tmp_daily, settings.clean_dir / "etf_daily.parquet")
+    try:
+        tmp_basic.parent.rmdir()
+    except OSError:
+        pass
 
 
 def _cached_etf_basic(limit: int) -> pd.DataFrame:

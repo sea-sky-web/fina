@@ -22,7 +22,7 @@ from app.models import (
     RotationPoolForwardSummary,
     RotationPoolObservation,
 )
-from app.services.cache import FingerprintCache, clean_data_fingerprint
+from app.services.cache import FingerprintCache, clean_data_fingerprint, _MISSING
 from app.services.factor_service import _read_factors
 from app.services.rotation_service import BENCHMARK_SYMBOL, build_rotation_report
 from app.storage.parquet_store import read_parquet
@@ -512,7 +512,7 @@ def generate_factor_evaluation_report(
         _data_fingerprint(processed),
     )
     cached = _REPORT_CACHE.get(cache_key)
-    if cached is not None:
+    if cached is not _MISSING:
         return cached
 
     primary_horizon = requested_horizons[-1]
@@ -585,7 +585,7 @@ def generate_factor_pool_report(
         _data_fingerprint(processed),
     )
     cached = _POOL_REPORT_CACHE.get(cache_key)
-    if cached is not None:
+    if cached is not _MISSING:
         return cached
 
     reports = [
@@ -723,7 +723,7 @@ def generate_rotation_evaluation_report(
         clean_data_fingerprint(["etf_daily.parquet", "etf_basic.parquet"]),
     )
     cached = _ROTATION_REPORT_CACHE.get(cache_key)
-    if cached is not None:
+    if cached is not _MISSING:
         return cached
 
     daily = _rotation_daily_frame()

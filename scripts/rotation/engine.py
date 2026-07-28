@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .config import ClassConfig, StrategyConfig, DEFAULT_CONFIG
+from .config import ClassConfig, StrategyConfig, DEFAULT_CONFIG, TRADING_DAYS_PER_YEAR
 
 
 def target_symbols_hysteresis(
@@ -30,6 +30,54 @@ def target_symbols_hysteresis(
     new_candidates = [s for s in ranked_eligible.index if s not in keep_final]
     new_adds = new_candidates[: max(open_slots, 0)]
     return keep_final + new_adds
+
+
+def _multi_signal_regime_scale(
+    bench_close: pd.Series,
+    dates: pd.DatetimeIndex,
+    bear_scale: float,
+    bull_boost: float,
+) -> pd.Series:
+    """四信号投票 regime 检测,替代单一 MA10/MA30 交叉判断.
+
+    信号(每日各产生看多/看空一票):
+      1. MA5 > MA20   (快,2-3日反应)
+      2. RSI(5) > 70  (极快,1日反应,捕捉超卖反弹)
+      3. 3日涨幅 > 5%  (极快,1日反应,捕捉暴涨确认)
+      4. MA10 > MA30  (慢,原有趋势确认信号)
+
+    票数 >=3 看多 -> 牛市模式(bull_boost)
+    票数 <=1 看多 -> 熊市模式(bear_scale)
+    票数 ==2      -> 中性模式(两者均值), 渐进过渡, 减少反转时的滞后踏空
+    """
+    ma5 = bench_close.rolling(5).mean()
+    ma10 = bench_close.rolling(10).mean()
+    ma20 = bench_close.rolling(20).mean()
+    ma30 = bench_close.rolling(30).mean()
+
+    delta = bench_close.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(5).mean()
+    avg_loss = loss.rolling(5).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rsi5 = 100 - (100 / (1 + rs))
+    rsi5 = rsi5.where(avg_loss != 0, 100.0)
+
+    mom3 = bench_close.pct_change(3)
+
+    vote_ma_fast = (ma5 > ma20).astype(int)
+    vote_rsi = (rsi5 > 70).astype(int)
+    vote_mom = (mom3 > 0.05).astype(int)
+    vote_ma_slow = (ma10 > ma30).astype(int)
+
+    votes = (vote_ma_fast + vote_rsi + vote_mom + vote_ma_slow).reindex(dates).fillna(0)
+
+    neutral_scale = (bear_scale + bull_boost) / 2.0
+    scale = pd.Series(bear_scale, index=dates)
+    scale[votes == 2] = neutral_scale
+    scale[votes >= 3] = bull_boost
+    return scale
 
 
 def target_weights(
@@ -65,11 +113,15 @@ def simulate(
     holdings: int,
     config: StrategyConfig = DEFAULT_CONFIG,
     class_config: ClassConfig | None = None,
+    record_weights: bool = False,
 ) -> pd.DataFrame:
     """模拟引擎.
 
     当 class_config 不为 None 时，使用其中的风控参数覆盖 config 中的默认值,
     实现多资产模式下每类独立的风控阈值.
+
+    record_weights=True 时,每条记录额外附带当日权重快照、regime_scale、
+    止损/暂停/回撤保护等状态标签,用于逐日持仓复盘(不影响默认行为).
     """
     benchmark = class_config.benchmark if class_config else config.benchmark
     stop_loss_threshold = (
@@ -124,9 +176,7 @@ def simulate(
 
     bench_close = close_full[benchmark]
     bench_daily_ret = bench_close.pct_change().reindex(dates).fillna(0.0)
-    bench_ma10 = bench_close.rolling(10).mean()
-    bench_ma30 = bench_close.rolling(30).mean()
-    bear_mask = (bench_ma10 < bench_ma30).reindex(dates).fillna(False)
+    regime_scale = _multi_signal_regime_scale(bench_close, dates, bear_scale, bull_boost)
 
     symbols_no_bench = [s for s in symbols if s != benchmark]
     all_syms = symbols_no_bench + [benchmark]
@@ -154,7 +204,9 @@ def simulate(
         day_returns_all[symbols_no_bench] = day_returns_sector
         day_returns_all[benchmark] = bench_ret_today
 
-        gross_return = float((current_weights * day_returns_all).sum())
+        weights_before = current_weights.copy()
+        contributions = current_weights * day_returns_all
+        gross_return = float(contributions.sum())
 
         b_ret = float(bench_daily_ret.loc[d])
         if b_ret > 0:
@@ -220,13 +272,15 @@ def simulate(
             final_set, symbols_no_bench, benchmark, max_weight, bench_slot=use_bench_slot,
         )
 
-        if bear_mask.loc[d]:
-            target = target * bear_scale
-        else:
-            target = target * bull_boost
+        target = target * regime_scale.loc[d]
 
         current_weights = current_weights.reindex(all_syms, fill_value=0.0)
         target = target.reindex(all_syms, fill_value=0.0)
+
+        total_exposure = float(target.sum())
+        leverage_cost = 0.0
+        if total_exposure > 1.0:
+            leverage_cost = (total_exposure - 1.0) * (0.03 / TRADING_DAYS_PER_YEAR)
 
         delta = target - current_weights
         planned_turnover = float(delta.abs().sum())
@@ -236,10 +290,15 @@ def simulate(
             planned_turnover = max_turnover
 
         cost = planned_turnover * cost_rate
-        net_return = gross_return - cost
+        net_return = gross_return - cost - leverage_cost
 
-        if net_return <= circuit_breaker:
+        circuit_triggered = net_return <= circuit_breaker
+        if circuit_triggered:
             paused_until = d + pd.tseries.offsets.BDay(1)
+            target = current_weights.copy()
+            planned_turnover = 0.0
+            cost = 0.0
+            net_return = gross_return
 
         for sym in all_syms:
             was_held = current_weights.get(sym, 0.0) > 0
@@ -267,6 +326,21 @@ def simulate(
                 "net_return": net_return,
                 "turnover": planned_turnover,
                 "n_holdings": int((current_weights > 0).sum()),
+                **(
+                    {
+                        "weights_before": weights_before.to_dict(),
+                        "weights_after": current_weights.to_dict(),
+                        "contributions": contributions.to_dict(),
+                        "returns": day_returns_all.to_dict(),
+                        "regime_scale": float(regime_scale.loc[d]),
+                        "stopped_out": sorted(stopped_out),
+                        "circuit_triggered": bool(circuit_triggered),
+                        "in_dd_cooldown": bool(in_dd_cooldown),
+                        "use_bench_slot": bool(use_bench_slot),
+                    }
+                    if record_weights
+                    else {}
+                ),
             }
         )
 

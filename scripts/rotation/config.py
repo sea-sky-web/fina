@@ -47,7 +47,7 @@ class StrategyConfig:
     reentry_peak_buffer: float = 0.04
 
     bear_scale: float = 0.50
-    bull_boost: float = 1.50
+    bull_boost: float = 1.00
 
     min_history_days: int = 1200
     min_avg_amount: float = 5.0e7
@@ -89,7 +89,7 @@ class ClassConfig:
     reentry_peak_buffer: float = 0.04
 
     bear_scale: float = 0.50
-    bull_boost: float = 1.50
+    bull_boost: float = 1.00
 
     min_history_days: int = 500
     min_avg_amount: float = 1.0e7
@@ -104,7 +104,7 @@ DEFAULT_CLASS_CONFIGS: dict[AssetClass, ClassConfig] = {
         stop_loss_threshold=-0.05,
         circuit_breaker_daily_loss=-0.03,
         bear_scale=0.50,
-        bull_boost=1.50,
+        bull_boost=1.00,
         min_history_days=1200,
         min_avg_amount=5.0e7,
     ),
@@ -116,7 +116,7 @@ DEFAULT_CLASS_CONFIGS: dict[AssetClass, ClassConfig] = {
         stop_loss_threshold=-0.06,
         circuit_breaker_daily_loss=-0.04,
         bear_scale=0.50,
-        bull_boost=1.50,
+        bull_boost=1.00,
         min_history_days=500,
         min_avg_amount=5.0e7,
     ),
@@ -130,7 +130,7 @@ DEFAULT_CLASS_CONFIGS: dict[AssetClass, ClassConfig] = {
         circuit_breaker_daily_loss=-0.02,
         portfolio_dd_threshold=-0.04,
         bear_scale=0.70,
-        bull_boost=1.20,
+        bull_boost=1.00,
         min_history_days=500,
         min_avg_amount=1.0e7,
     ),
@@ -143,7 +143,7 @@ DEFAULT_CLASS_CONFIGS: dict[AssetClass, ClassConfig] = {
         circuit_breaker_daily_loss=-0.06,
         portfolio_dd_threshold=-0.12,
         bear_scale=0.50,
-        bull_boost=1.30,
+        bull_boost=1.00,
         min_history_days=500,
         min_avg_amount=1.0e7,
     ),
@@ -156,7 +156,7 @@ DEFAULT_CLASS_CONFIGS: dict[AssetClass, ClassConfig] = {
         circuit_breaker_daily_loss=-0.05,
         portfolio_dd_threshold=-0.10,
         bear_scale=0.50,
-        bull_boost=1.40,
+        bull_boost=1.00,
         min_history_days=500,
         min_avg_amount=1.0e7,
     ),

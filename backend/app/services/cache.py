@@ -28,10 +28,10 @@ class FingerprintCache:
         self.max_items = max_items
         self._values: OrderedDict[tuple[object, ...], Any] = OrderedDict()
 
-    def get(self, key: tuple[object, ...]) -> Any | None:
+    def get(self, key: tuple[object, ...]) -> Any:
         value = self._values.get(key, _MISSING)
         if value is _MISSING:
-            return None
+            return _MISSING
         self._values.move_to_end(key)
         return value
 
@@ -44,7 +44,7 @@ class FingerprintCache:
 
     def get_or_create(self, key: tuple[object, ...], factory: Callable[[], T]) -> T:
         cached = self.get(key)
-        if cached is not None:
+        if cached is not _MISSING:
             return cached
         return self.set(key, factory())
 

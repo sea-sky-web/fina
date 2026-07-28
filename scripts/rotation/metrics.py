@@ -33,10 +33,10 @@ def max_drawdown(daily_returns: pd.Series) -> float:
 
 
 def sharpe_ratio(daily_returns: pd.Series) -> float:
-    if daily_returns.empty or daily_returns.std(ddof=0) == 0:
+    if daily_returns.empty or len(daily_returns) < 2 or daily_returns.std(ddof=1) == 0:
         return 0.0
     return float(
-        daily_returns.mean() / daily_returns.std(ddof=0) * np.sqrt(TRADING_DAYS_PER_YEAR)
+        daily_returns.mean() / daily_returns.std(ddof=1) * np.sqrt(TRADING_DAYS_PER_YEAR)
     )
 
 

@@ -23,8 +23,12 @@ def liquidity_filter(
     amount: pd.DataFrame,
     symbols: list[str],
     config: StrategyConfig = DEFAULT_CONFIG,
+    cutoff_date: pd.Timestamp | None = None,
 ) -> list[str]:
-    avg_amount = amount[symbols].mean()
+    amt = amount[symbols]
+    if cutoff_date is not None:
+        amt = amt.loc[:cutoff_date]
+    avg_amount = amt.mean()
     kept = [s for s in symbols if avg_amount.get(s, 0) >= config.min_avg_amount]
     dropped = sorted(set(symbols) - set(kept))
     if dropped:

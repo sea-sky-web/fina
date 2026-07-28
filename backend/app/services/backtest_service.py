@@ -699,7 +699,7 @@ def _run_research_signal_backtest_uncached(
         values="close",
         aggfunc="last",
     ).sort_index()
-    returns = prices.pct_change()
+    returns = prices.pct_change(fill_method=None)
     trading_dates = list(prices.index)
     selections = _select_dynamic_rebalances(
         factors,

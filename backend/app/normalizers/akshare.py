@@ -153,6 +153,25 @@ def normalize_etf_daily(frame: pd.DataFrame, symbol: str) -> pd.DataFrame:
         if column in data.columns:
             data[column] = pd.to_numeric(data[column], errors="coerce")
 
+    price_cols = ["open", "high", "low", "close"]
+    price_nan_mask = data[price_cols].isna().any(axis=1)
+    if price_nan_mask.any():
+        n_bad = int(price_nan_mask.sum())
+        data = data[~price_nan_mask].copy()
+        if data.empty:
+            raise ValueError(
+                f"ETF {symbol}: all {n_bad} rows dropped due to NaN in OHLC columns."
+            )
+
+    non_positive_close = data["close"] <= 0
+    if non_positive_close.any():
+        n_bad = int(non_positive_close.sum())
+        data = data[~non_positive_close].copy()
+        if data.empty:
+            raise ValueError(
+                f"ETF {symbol}: all rows dropped due to non-positive close prices."
+            )
+
     data["symbol"] = symbol
     data["pre_close"] = data["close"].shift(1)
     data["factor"] = 1.0

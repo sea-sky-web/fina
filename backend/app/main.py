@@ -1,14 +1,16 @@
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
 from app.core.config import settings
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
+
+MUTATION_PREFIXES = ("/api/refresh", "/api/factors/rebuild", "/api/portfolio")
 
 
 def create_app() -> FastAPI:
@@ -25,6 +27,15 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def api_key_guard(request: Request, call_next):
+        if settings.api_key and request.method in ("POST", "PUT", "DELETE", "PATCH"):
+            if any(request.url.path.startswith(p) for p in MUTATION_PREFIXES):
+                provided = request.headers.get("X-API-Key", "")
+                if provided != settings.api_key:
+                    return JSONResponse(status_code=403, content={"detail": "Invalid or missing API key"})
+        return await call_next(request)
 
     app.include_router(router, prefix="/api")
 

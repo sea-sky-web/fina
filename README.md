@@ -47,6 +47,7 @@ scripts/          项目级辅助脚本
 - [Data Contract](docs/DATA_CONTRACT.md)
 - [Rotation Radar Design](docs/ROTATION_RADAR_DESIGN.md)
 - [Goals and Task Priorities](docs/GOALS_AND_TASKS.md)
+- [Rotation Engine Risk Review (2026-07)](docs/rotation_engine_risk_review_2026-07.md)
 
 ## 快速开始
 

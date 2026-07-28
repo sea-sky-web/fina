@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     cors_origins_raw: str = Field(
-        default="",
+        default="http://localhost:8000,http://127.0.0.1:8000",
         validation_alias="FINA_CORS_ORIGINS",
     )
     factor_outlier_method: str = "mad"
@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     factor_evaluation_horizons: str = "1,5,10,20"
     data_stale_after_days: int = 3
     rotation_input_path: Path = Field(default=PROJECT_ROOT / "config" / "etf_rotation_inputs.csv")
+    api_key: str = Field(default="", validation_alias="FINA_API_KEY")
 
     @cached_property
     def cors_origins(self) -> list[str]:

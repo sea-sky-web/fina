@@ -69,7 +69,7 @@ class AkshareEtfCollector(EtfDataCollector):
         frame["updated_at"] = datetime.now(UTC)
         return frame
 
-    @_retry_on_disconnect(max_retries=1, base_backoff=2)
+    @_retry_on_disconnect(max_retries=3, base_backoff=2)
     def fetch_daily_bars(self, symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
         import akshare as ak
 

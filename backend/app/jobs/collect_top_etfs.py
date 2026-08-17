@@ -9,8 +9,9 @@ from pathlib import Path
 import pandas as pd
 
 from app.collectors.akshare_collector import AkshareEtfCollector
-from app.core.config import PROJECT_ROOT, settings
+from app.core.config import settings
 from app.normalizers.akshare import normalize_etf_daily, normalize_etf_spot
+from app.services.strategy_config import universe_path
 from app.storage.parquet_store import read_parquet, write_parquet
 
 
@@ -161,7 +162,7 @@ def collect_top_etfs(limit: int = 200, lookback_days: int = 2520) -> dict[str, o
     daily_source_endpoints: set[str] = set()
 
     # 确保策略宇宙标的被纳入采集（即使不在成交额 top-N 中）
-    strategy_universe_path = PROJECT_ROOT / "config" / "v58_universe.csv"
+    strategy_universe_path = universe_path()
     all_symbols = set(etf_basic["symbol"].tolist())
     supplemented: list[str] = []
     if strategy_universe_path.exists():
@@ -173,7 +174,10 @@ def collect_top_etfs(limit: int = 200, lookback_days: int = 2520) -> dict[str, o
                     all_symbols.add(sym)
                     supplemented.append(sym)
         if supplemented:
-            print(f"[collect] supplemented {len(supplemented)} strategy-universe symbols: {supplemented}")
+            print(
+                f"[collect] supplemented {len(supplemented)} "
+                f"strategy-universe symbols: {supplemented}"
+            )
 
     for symbol in sorted(all_symbols):
         try:

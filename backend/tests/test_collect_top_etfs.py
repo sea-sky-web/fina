@@ -86,7 +86,9 @@ def test_akshare_collector_applies_default_request_timeout(monkeypatch: pytest.M
         captured_timeouts.append(kwargs["timeout"])
         return SimpleNamespace()
 
-    def fake_em(symbol: str, period: str, start_date: str, end_date: str, adjust: str) -> pd.DataFrame:
+    def fake_em(
+        symbol: str, period: str, start_date: str, end_date: str, adjust: str
+    ) -> pd.DataFrame:
         import requests
 
         requests.get("https://example.test/daily")
@@ -107,7 +109,10 @@ def test_akshare_collector_applies_default_request_timeout(monkeypatch: pytest.M
 
 def test_collect_top_etfs_writes_clean_outputs(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.setattr(settings, "data_dir", tmp_path)
-    monkeypatch.setattr("app.jobs.collect_top_etfs.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "app.jobs.collect_top_etfs.universe_path",
+        lambda: tmp_path / "config" / "strategy_universe.csv",
+    )
     monkeypatch.setattr(AkshareEtfCollector, "fetch_etf_universe", lambda self: _spot_frame())
     monkeypatch.setattr(
         AkshareEtfCollector,
@@ -129,7 +134,10 @@ def test_collect_top_etfs_keeps_previous_clean_data_on_failure(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     monkeypatch.setattr(settings, "data_dir", tmp_path)
-    monkeypatch.setattr("app.jobs.collect_top_etfs.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "app.jobs.collect_top_etfs.universe_path",
+        lambda: tmp_path / "config" / "strategy_universe.csv",
+    )
     settings.clean_dir.mkdir(parents=True, exist_ok=True)
     old_basic = pd.DataFrame([{"symbol": "OLD.SH", "amount": 1.0}])
     old_daily = pd.DataFrame([{"symbol": "OLD.SH", "date": "2026-05-21", "close": 1.0}])
@@ -159,7 +167,10 @@ def test_collect_top_etfs_reuses_cached_universe_when_spot_fails(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     monkeypatch.setattr(settings, "data_dir", tmp_path)
-    monkeypatch.setattr("app.jobs.collect_top_etfs.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "app.jobs.collect_top_etfs.universe_path",
+        lambda: tmp_path / "config" / "strategy_universe.csv",
+    )
     settings.clean_dir.mkdir(parents=True, exist_ok=True)
     cached_basic = pd.DataFrame(
         [
@@ -199,7 +210,10 @@ def test_collect_top_etfs_reuses_raw_spot_cache_before_clean_universe(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     monkeypatch.setattr(settings, "data_dir", tmp_path)
-    monkeypatch.setattr("app.jobs.collect_top_etfs.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "app.jobs.collect_top_etfs.universe_path",
+        lambda: tmp_path / "config" / "strategy_universe.csv",
+    )
     raw_spot_path = settings.raw_dir / "akshare" / "etf_spot" / "date=20260528" / "part.parquet"
     raw_spot_path.parent.mkdir(parents=True, exist_ok=True)
     _spot_frame().to_parquet(raw_spot_path, index=False)
@@ -226,7 +240,10 @@ def test_collect_top_etfs_reuses_cached_daily_when_daily_fails(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     monkeypatch.setattr(settings, "data_dir", tmp_path)
-    monkeypatch.setattr("app.jobs.collect_top_etfs.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "app.jobs.collect_top_etfs.universe_path",
+        lambda: tmp_path / "config" / "strategy_universe.csv",
+    )
     settings.clean_dir.mkdir(parents=True, exist_ok=True)
     cached_daily = pd.DataFrame(
         [
@@ -265,7 +282,10 @@ def test_collect_top_etfs_writes_partial_daily_when_some_symbols_have_no_cache(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     monkeypatch.setattr(settings, "data_dir", tmp_path)
-    monkeypatch.setattr("app.jobs.collect_top_etfs.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "app.jobs.collect_top_etfs.universe_path",
+        lambda: tmp_path / "config" / "strategy_universe.csv",
+    )
     monkeypatch.setattr(AkshareEtfCollector, "fetch_etf_universe", lambda self: _spot_frame())
 
     def fetch_daily(self, symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
@@ -290,7 +310,10 @@ def test_collect_top_etfs_uses_same_day_raw_daily_cache(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     monkeypatch.setattr(settings, "data_dir", tmp_path)
-    monkeypatch.setattr("app.jobs.collect_top_etfs.PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "app.jobs.collect_top_etfs.universe_path",
+        lambda: tmp_path / "config" / "strategy_universe.csv",
+    )
     monkeypatch.setattr(AkshareEtfCollector, "fetch_etf_universe", lambda self: _spot_frame())
 
     raw_daily_root = settings.raw_dir / "akshare" / "etf_daily"

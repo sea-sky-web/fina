@@ -21,6 +21,7 @@ dist/
 # Local tool settings
 .claude/settings.local.json
 .claude/plans/
+.qoder/
 
 # Data
 artifacts/
@@ -38,4 +39,3 @@ data/qlib/
 
 # Logs
 *.log
-artifacts/

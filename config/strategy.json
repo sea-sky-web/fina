@@ -1,0 +1,18 @@
+{
+  "version": "v58",
+  "description": "60轮 walk-forward 优化选出的收益优先配置（原 V58 策略）",
+  "universe_file": "config/strategy_universe.csv",
+  "params": {
+    "benchmark": "510300.SH",
+    "k": 3,
+    "max_symbol_weight": 0.25,
+    "hysteresis_buffer": 3,
+    "stop_loss_threshold": -0.05,
+    "cooldown_days": 5,
+    "bull_boost": 1.5,
+    "bear_scale": 0.5,
+    "volume_threshold": 1.15,
+    "momentum_lookbacks": [10, 20],
+    "rel_strength_lookback": 60
+  }
+}

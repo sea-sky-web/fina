@@ -32,18 +32,24 @@ PYTHONPATH=backend python -m app.jobs.rebuild_factors --lookback-days 60
 
 ### Frontend
 
-`frontend/index.html` is a single-file V58 strategy dashboard (vanilla JS, no framework).
+`frontend/index.html` is a single-file strategy dashboard (vanilla JS, no framework).
 
-### Rotation Backtest (`scripts/rotation/`)
+### Rotation Backtest Engine (`backend/app/rotation_engine/`)
 
-The standalone ETF rotation backtest strategy, modularized as a Python package:
+The ETF rotation backtest engine lives inside the backend package so the live signal
+service (`app/services/strategy_signal_service.py`) and the offline walk-forward
+backtest share the same scoring/selection code:
 
 ```bash
 # Run full walk-forward backtest
-cd /path/to/fina && PYTHONPATH=scripts /path/to/venv/python -m rotation
+PYTHONPATH=backend backend/.venv/bin/python -m app.rotation_engine
 
-# Or via wrapper
-PYTHONPATH=scripts /path/to/venv/python scripts/rotation_backtest.py
+# Multi-asset two-layer mode / triple validation
+PYTHONPATH=backend backend/.venv/bin/python -m app.rotation_engine --multi
+PYTHONPATH=backend backend/.venv/bin/python -m app.rotation_engine --validate
+
+# Or via legacy wrapper
+python scripts/rotation_backtest.py
 ```
 
 Package structure:
@@ -59,7 +65,13 @@ Package structure:
 | `report.py` | Cost erosion test, 8-item judge checklist report |
 | `__main__.py` | Entry point |
 
-Data pipeline: `build_backtest_data.py` → `data/research/etf_daily_backtest.parquet` → `rotation/` package → `artifacts/backtest_v64/`
+Data pipeline: `scripts/build_backtest_data.py` → `data/research/etf_daily_backtest.parquet` → `app/rotation_engine` → `artifacts/backtest_v64/`
+
+### Strategy versioning
+
+The live signal strategy is versioned via `config/strategy.json` (version string +
+params + universe csv path). API surface is `/api/strategy/*`; no strategy version is
+hardcoded in module or route names. State persists to `data/clean/strategy_state.json`.
 
 ## Architecture
 
@@ -98,7 +110,7 @@ Refreshes use **atomic replace**: write new data to a temp dir, then `os.replace
 
 ### Frontend
 
-`frontend/index.html` — single-file V58 dashboard: signal ranking table, portfolio action cards, equity curve comparison (V58 vs V48 vs CSI300). Vanilla JS, data from `/api/v58/signal`.
+`frontend/index.html` — single-file strategy dashboard: signal ranking table, portfolio action cards, equity curve comparison (current strategy vs baseline vs CSI300). Vanilla JS, data from `/api/strategy/signal`.
 
 ### Key design decisions
 

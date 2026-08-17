@@ -433,7 +433,11 @@ class MonitoringReport(BaseModel):
     data_notes: list[str] = Field(default_factory=list)
 
 
-class V58Config(BaseModel):
+class StrategyParams(BaseModel):
+    """轮动信号策略参数 — 数值来自 config/strategy.json，version 标识策略迭代版本."""
+
+    version: str = "v58"
+    benchmark: str = "510300.SH"
     k: int = 3
     stop_loss_threshold: float = -0.05
     cooldown_days: int = 5
@@ -446,7 +450,7 @@ class V58Config(BaseModel):
     rel_strength_lookback: int = 60
 
 
-class V58SymbolSignal(BaseModel):
+class StrategySymbolSignal(BaseModel):
     symbol: str
     name: str
     theme: str = ""
@@ -462,7 +466,7 @@ class V58SymbolSignal(BaseModel):
     cooldown_until: dt_date | None = None
 
 
-class V58PortfolioState(BaseModel):
+class StrategyPortfolioState(BaseModel):
     signal_date: dt_date
     factor_regime: str = "bull"
     position_regime: str = "bull"
@@ -472,10 +476,10 @@ class V58PortfolioState(BaseModel):
     n_holdings: int = 0
 
 
-class V58SignalReport(BaseModel):
+class StrategySignalReport(BaseModel):
     signal_date: dt_date
-    config: V58Config = Field(default_factory=V58Config)
-    portfolio_state: V58PortfolioState
-    signals: list[V58SymbolSignal] = Field(default_factory=list)
-    selected: list[V58SymbolSignal] = Field(default_factory=list)
+    config: StrategyParams = Field(default_factory=StrategyParams)
+    portfolio_state: StrategyPortfolioState
+    signals: list[StrategySymbolSignal] = Field(default_factory=list)
+    selected: list[StrategySymbolSignal] = Field(default_factory=list)
     data_notes: list[str] = Field(default_factory=list)

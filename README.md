@@ -32,11 +32,12 @@
 ## 目录
 
 ```text
-backend/          FastAPI 后端与数据采集任务
-config/           人工维护的行业景气、估值和结构评分输入
+backend/          FastAPI 后端、数据采集任务与轮动回测引擎 (app/rotation_engine)
+config/           人工维护的行业景气、估值和结构评分输入 + 策略版本化配置 (strategy.json)
 data/             本地数据目录, 默认不提交真实数据
 docs/             架构、约束、数据约定
-scripts/          项目级辅助脚本
+frontend/         单文件策略仪表盘
+scripts/          数据构建与回测入口脚本 (archive/ 为一次性分析脚本存档)
 ```
 
 核心文档：

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>V58 行业轮动仪表盘</title>
+<title>行业轮动仪表盘</title>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -313,7 +313,7 @@ tbody tr.row-stopped {
 <body>
 
 <div class="container">
-  <h1>V58 行业轮动仪表盘</h1>
+  <h1 id="pageTitle">行业轮动仪表盘</h1>
 
   <!-- Error -->
   <div class="error-box" id="errorBox">
@@ -388,7 +388,7 @@ tbody tr.row-stopped {
 
     <!-- 4. Footer -->
     <div class="footer">
-      <div class="footer-strategy" id="strategyDesc">V58 行业轮动策略 | K=3 | 止损-5% | 近5窗口年化+53.5%</div>
+      <div class="footer-strategy" id="strategyDesc">行业轮动策略</div>
       <div id="lastRefresh">最后刷新: —</div>
       <button class="btn-refresh" id="btnRefresh" onclick="loadData()">刷新数据</button>
     </div>
@@ -547,9 +547,12 @@ function renderCards(selected, config) {
 
 function renderFooter(data) {
   var cfg = data.config;
-  var desc = 'V58 行业轮动策略 | K=' + cfg.k +
-    ' | 止损' + (cfg.stop_loss_threshold * 100).toFixed(0) + '% | 近5窗口年化+53.5%';
+  var ver = (cfg.version || '').toUpperCase();
+  var desc = ver + ' 行业轮动策略 | K=' + cfg.k +
+    ' | 止损' + (cfg.stop_loss_threshold * 100).toFixed(0) + '%';
   document.getElementById('strategyDesc').textContent = desc;
+  document.getElementById('pageTitle').textContent = ver + ' 行业轮动仪表盘';
+  document.title = ver + ' 行业轮动仪表盘';
   document.getElementById('lastRefresh').textContent = '最后刷新: ' + fmtTime();
 }
 
@@ -583,7 +586,7 @@ function loadData() {
   }
   document.getElementById('errorBox').style.display = 'none';
 
-  fetch('/api/v58/signal')
+  fetch('/api/strategy/signal')
     .then(function(resp) {
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       return resp.json();
@@ -594,7 +597,7 @@ function loadData() {
       renderCards(data.selected, data.config);
       renderFooter(data);
       showContent();
-      loadBacktest();
+      loadBacktest((data.config && data.config.version) || 'v58');
     })
     .catch(function(err) {
       console.error('Failed to load signal data:', err);
@@ -606,19 +609,19 @@ function loadData() {
     });
 }
 
-function loadBacktest() {
+function loadBacktest(version) {
   Promise.all([
-    fetch('/api/v58/backtest/v58').then(function(r){return r.json();}),
-    fetch('/api/v58/backtest/v48').then(function(r){return r.json();}).catch(function(){return null;})
+    fetch('/api/strategy/backtest/' + version).then(function(r){return r.json();}),
+    fetch('/api/strategy/backtest/v48').then(function(r){return r.json();}).catch(function(){return null;})
   ]).then(function(results) {
-    var v58 = results[0];
-    var v48 = results[1];
-    if (v58 && !v58.error) renderEquityChart(v58, v48);
-    if (v48 && !v48.error) renderStrategyComparison(v58, v48);
+    var cur = results[0];
+    var base = results[1];
+    if (cur && !cur.error) renderEquityChart(cur, base);
+    if (base && !base.error) renderStrategyComparison(cur, base);
   }).catch(function() {});
 }
 
-function renderStrategyComparison(v58, v48) {
+function renderStrategyComparison(cur, base) {
   var container = document.getElementById('compare-section');
   if (!container) {
     container = document.createElement('section');
@@ -626,48 +629,49 @@ function renderStrategyComparison(v58, v48) {
     container.style.cssText = 'background:#16213e;border-radius:12px;padding:20px;margin-top:20px;';
     document.querySelector('main').appendChild(container);
   }
-  var s58 = v58.summary || {};
-  var s48 = v48.summary || {};
-  var c58 = v58.checklist || {};
-  var c48 = v48.checklist || {};
-  var p58 = Object.values(c58).filter(function(v){return v;}).length;
-  var p48 = Object.values(c48).filter(function(v){return v;}).length;
+  var curVer = cur.version || '当前策略';
+  var baseVer = base.version || '基线策略';
+  var sCur = cur.summary || {};
+  var sBase = base.summary || {};
+  var cCur = cur.checklist || {};
+  var cBase = base.checklist || {};
+  var pCur = Object.values(cCur).filter(function(v){return v;}).length;
+  var pBase = Object.values(cBase).filter(function(v){return v;}).length;
 
   var rows = [
-    ['年化收益', s58.annualized_return, s48.annualized_return, true],
-    ['Sharpe', s58.sharpe, s48.sharpe, true],
-    ['最大回撤', s58.max_drawdown, s48.max_drawdown, false],
-    ['胜率', s58.win_rate, s48.win_rate, true],
-    ['最差窗口', s58.worst_window, s48.worst_window, false],
-    ['连续亏损', s58.max_consecutive_losing_windows, s48.max_consecutive_losing_windows, false],
+    ['年化收益', sCur.annualized_return, sBase.annualized_return, true],
+    ['Sharpe', sCur.sharpe, sBase.sharpe, true],
+    ['最大回撤', sCur.max_drawdown, sBase.max_drawdown, false],
+    ['胜率', sCur.win_rate, sBase.win_rate, true],
+    ['最差窗口', sCur.worst_window, sBase.worst_window, false],
+    ['连续亏损', sCur.max_consecutive_losing_windows, sBase.max_consecutive_losing_windows, false],
   ];
 
-  var html = '<h3 style="color:#e0e0e0;margin:0 0 12px 0;">⚖️ 策略对比: V58(进攻) vs V48(稳健)</h3>';
+  var html = '<h3 style="color:#e0e0e0;margin:0 0 12px 0;">⚖️ 策略对比: ' + curVer + '(进攻) vs ' + baseVer + '(稳健)</h3>';
   html += '<table style="width:100%;border-collapse:collapse;font-size:14px;">';
   html += '<tr style="border-bottom:1px solid #333;"><th style="text-align:left;padding:8px;color:#888;">指标</th>';
-  html += '<th style="text-align:right;padding:8px;color:#ff6b6b;">V58 进攻 ('+p58+'/8)</th>';
-  html += '<th style="text-align:right;padding:8px;color:#00d4aa;">V48 稳健 ('+p48+'/8)</th></tr>';
+  html += '<th style="text-align:right;padding:8px;color:#ff6b6b;">' + curVer + ' 进攻 ('+pCur+'/8)</th>';
+  html += '<th style="text-align:right;padding:8px;color:#00d4aa;">' + baseVer + ' 稳健 ('+pBase+'/8)</th></tr>';
 
   rows.forEach(function(r) {
-    var label = r[0], val58 = r[1], val48 = r[2], higherBetter = r[3];
-    var fmt58 = typeof val58 === 'number' ? (Math.abs(val58) < 10 ? (val58*100).toFixed(1)+'%' : val58) : '-';
-    var fmt48 = typeof val48 === 'number' ? (Math.abs(val48) < 10 ? (val48*100).toFixed(1)+'%' : val48) : '-';
-    if (r[0] === 'Sharpe') { fmt58 = (val58||0).toFixed(3); fmt48 = (val48||0).toFixed(3); }
-    if (r[0] === '连续亏损') { fmt58 = val58; fmt48 = val48; }
-    var better58 = higherBetter ? val58 > val48 : val58 < val48;
-    var c58c = better58 ? '#00d4aa' : '#e0e0e0';
-    var c48c = better58 ? '#e0e0e0' : '#00d4aa';
+    var valCur = r[1], valBase = r[2], higherBetter = r[3];
+    var fmtCur = typeof valCur === 'number' ? (Math.abs(valCur) < 10 ? (valCur*100).toFixed(1)+'%' : valCur) : '-';
+    var fmtBase = typeof valBase === 'number' ? (Math.abs(valBase) < 10 ? (valBase*100).toFixed(1)+'%' : valBase) : '-';
+    if (r[0] === 'Sharpe') { fmtCur = (valCur||0).toFixed(3); fmtBase = (valBase||0).toFixed(3); }
+    if (r[0] === '连续亏损') { fmtCur = valCur; fmtBase = valBase; }
+    var betterCur = higherBetter ? valCur > valBase : valCur < valBase;
+    var cCurColor = betterCur ? '#00d4aa' : '#e0e0e0';
+    var cBaseColor = betterCur ? '#e0e0e0' : '#00d4aa';
     html += '<tr style="border-bottom:1px solid #222;">';
     html += '<td style="padding:8px;color:#ccc;">'+r[0]+'</td>';
-    html += '<td style="text-align:right;padding:8px;color:'+c58c+';">'+fmt58+'</td>';
-    html += '<td style="text-align:right;padding:8px;color:'+c48c+';">'+fmt48+'</td></tr>';
+    html += '<td style="text-align:right;padding:8px;color:'+cCurColor+';">'+fmtCur+'</td>';
+    html += '<td style="text-align:right;padding:8px;color:'+cBaseColor+';">'+fmtBase+'</td></tr>';
   });
   html += '</table>';
-  html += '<p style="color:#666;font-size:12px;margin:8px 0 0;">V58: K=3, 量价确认, BULL×1.50 | V48: K=2, 分散度过滤, Sharpe>1.0</p>';
   container.innerHTML = html;
 }
 
-function renderEquityChart(data, data48) {
+function renderEquityChart(data, dataBase) {
   var container = document.getElementById('chart-section');
   if (!container) {
     container = document.createElement('section');
@@ -701,7 +705,7 @@ function renderEquityChart(data, data48) {
   html += '</div>';
   html += '<canvas id="equity-canvas" width="' + W + '" height="' + H + '" style="width:100%;max-width:' + W + 'px;height:auto;"></canvas>';
   html += '<div style="margin-top:8px;font-size:12px;color:#888;">';
-  html += '<span style="color:#00d4aa">━━ V58策略</span> &nbsp; <span style="color:#7c4dff">╌╌ V48稳健</span> &nbsp; <span style="color:#ffa726">━━ 沪深300</span> &nbsp; ';
+  html += '<span style="color:#00d4aa">━━ ' + (data.version || '当前') + '策略</span> &nbsp; <span style="color:#7c4dff">╌╌ ' + ((dataBase && dataBase.version) || '基线') + '稳健</span> &nbsp; <span style="color:#ffa726">━━ 沪深300</span> &nbsp; ';
   html += '共 ' + eq.length + ' 个窗口 (' + eq[0].date + ' ~ ' + eq[eq.length-1].date + ')';
   html += '</div>';
   container.innerHTML = html;
@@ -751,14 +755,14 @@ function renderEquityChart(data, data48) {
   drawLine('benchmark', '#ffa726');
   drawLine('equity', '#00d4aa');
 
-  // Overlay V48 equity curve if available
-  if (data48 && data48.equity_curve && data48.equity_curve.length > 0) {
-    var eq48 = data48.equity_curve;
+  // Overlay baseline strategy equity curve if available
+  if (dataBase && dataBase.equity_curve && dataBase.equity_curve.length > 0) {
+    var eqBase = dataBase.equity_curve;
     ctx.strokeStyle = '#7c4dff';
     ctx.lineWidth = 1.5;
     ctx.setLineDash([6, 3]);
     ctx.beginPath();
-    eq48.forEach(function(p, i) {
+    eqBase.forEach(function(p, i) {
       if (i >= eq.length) return;
       var x = xPos(i), y = yPos(p.equity);
       if (y < PAD) y = PAD; if (y > H - PAD) y = H - PAD;
@@ -766,9 +770,9 @@ function renderEquityChart(data, data48) {
     });
     ctx.stroke();
     ctx.setLineDash([]);
-    var last48 = eq48[Math.min(eq48.length - 1, eq.length - 1)];
+    var lastBase = eqBase[Math.min(eqBase.length - 1, eq.length - 1)];
     ctx.fillStyle = '#7c4dff'; ctx.font = '11px system-ui';
-    ctx.fillText('V48 ' + ((last48.equity - 1) * 100).toFixed(1) + '%', xPos(Math.min(eq48.length - 1, eq.length - 1)) + 4, yPos(last48.equity) + 14);
+    ctx.fillText((dataBase.version || '基线') + ' ' + ((lastBase.equity - 1) * 100).toFixed(1) + '%', xPos(Math.min(eqBase.length - 1, eq.length - 1)) + 4, yPos(lastBase.equity) + 14);
   }
 
   var lastEq = eq[eq.length - 1];
